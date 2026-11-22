@@ -29,7 +29,7 @@ public class MapRegion {
     public static final int PIXEL_COUNT = SIZE * SIZE;
 
     private static final int FILE_MAGIC = 0x534D4150; // "SMAP"
-    private static final int FILE_VERSION = 1;
+    private static final int FILE_VERSION = 2;
 
     // Reusable scratch buffer for 16x16 chunk sub-uploads (1 KB, main GL thread only)
     private static final ByteBuffer CHUNK_UPLOAD_BUF = BufferUtils.createByteBuffer(16 * 16 * 4);
@@ -191,8 +191,26 @@ public class MapRegion {
                     float shadowIntensity = 0.0f;
                     float sunHighlight = 0.0f;
                     int wDepth = waterDepth[idx] & 0xFF;
+                    boolean isLava = (wDepth == 0) && (rgb == 0xEB5E1A || rgb == 0xFF6B1A);
 
-                    if (shading) {
+                    if (shading && isLava) {
+                        // Glowing molten lava: crisp subtle shoreline cliff rim without turning muddy brown
+                        boolean hasN = rz > 0 && surfaceBaseRgb[idx - SIZE] != 0;
+                        boolean hasW = rx > 0 && surfaceBaseRgb[idx - 1] != 0;
+                        boolean hasS = rz + 1 < SIZE && surfaceBaseRgb[idx + SIZE] != 0;
+                        boolean hasE = rx + 1 < SIZE && surfaceBaseRgb[idx + 1] != 0;
+                        int maxBank = 0;
+                        if (hasN) maxBank = Math.max(maxBank, surfaceHeight[idx - SIZE] - h);
+                        if (hasW) maxBank = Math.max(maxBank, surfaceHeight[idx - 1] - h);
+                        if (hasS) maxBank = Math.max(maxBank, surfaceHeight[idx + SIZE] - h);
+                        if (hasE) maxBank = Math.max(maxBank, surfaceHeight[idx + 1] - h);
+                        if (maxBank >= 2) {
+                            shade = Math.max(0.80f, 1.0f - Math.min(8, maxBank) * 0.024f);
+                        } else if (!hasN || !hasW || !hasS || !hasE) {
+                            // Subtle magma edge hugging solid Nether walls
+                            shade = 0.88f;
+                        }
+                    } else if (shading) {
                         int surfaceY = h + wDepth;
                         boolean hasN = rz > 0 && surfaceBaseRgb[idx - SIZE] != 0;
                         boolean hasW = rx > 0 && surfaceBaseRgb[idx - 1] != 0;
@@ -282,7 +300,7 @@ public class MapRegion {
                     int finalRgb = BlockColorResolver.shadeColor(rgb, shade);
 
                     // Color-temperature polish: cool slate shadows + subtle warm sunlit ridges (zero muddy grey!)
-                    if (shading && wDepth == 0) {
+                    if (shading && wDepth == 0 && !isLava) {
                         if (shadowIntensity > 0.08f) {
                             float coolMix = Math.min(0.16f, (shadowIntensity - 0.06f) * 0.45f);
                             finalRgb = BlockColorResolver.blendColor(finalRgb, 0x1A2845, coolMix);
@@ -607,7 +625,11 @@ public class MapRegion {
         )) {
             int magic = in.readInt();
             int version = in.readInt();
-            if (magic != FILE_MAGIC || version != FILE_VERSION) {
+            if (magic != FILE_MAGIC || (version != 1 && version != FILE_VERSION)) {
+                return false;
+            }
+            // v1 stored Nether (dim -1) surface as Y=127 bedrock; discard stale v1 Nether cache so it rescans cleanly
+            if (version == 1 && dimensionId == -1) {
                 return false;
             }
             int chunkCount = in.readUnsignedShort();

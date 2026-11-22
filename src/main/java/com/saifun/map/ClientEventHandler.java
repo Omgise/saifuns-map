@@ -6,6 +6,7 @@ import com.saifun.map.config.MapConfig;
 import com.saifun.map.engine.ChunkScanner;
 import com.saifun.map.engine.MapWorldCache;
 import com.saifun.map.gui.GuiMapSettings;
+import com.saifun.map.gui.GuiQuickMenu;
 import com.saifun.map.gui.GuiWaypointEdit;
 import com.saifun.map.gui.GuiWaypoints;
 import com.saifun.map.gui.GuiWorldMap;
@@ -135,7 +136,9 @@ public class ClientEventHandler {
 
         MapConfig cfg = MapConfig.get();
 
-        if (MapKeybinds.KEY_WORLD_MAP.isPressed()) {
+        if (MapKeybinds.KEY_QUICK_MENU.isPressed()) {
+            mc.displayGuiScreen(new GuiQuickMenu(worldCache, chunkScanner, radarManager, waypointManager, gtnhBridge, minimapRenderer));
+        } else if (MapKeybinds.KEY_WORLD_MAP.isPressed()) {
             mc.displayGuiScreen(new GuiWorldMap(worldCache, chunkScanner, radarManager, waypointManager, gtnhBridge));
         } else if (MapKeybinds.KEY_WAYPOINTS_MENU.isPressed()) {
             mc.displayGuiScreen(new GuiWaypoints(null, waypointManager));

@@ -1,4 +1,5 @@
 key.categories.saifunsmap=Saifun's Map
+key.saifunsmap.quick_menu=Быстрое меню карты
 key.saifunsmap.settings=Открыть настройки карты
 key.saifunsmap.worldmap=Открыть карту мира
 key.saifunsmap.toggle_minimap=Показать / скрыть мини-карту
@@ -172,3 +173,10 @@ saifunsmap.cmd.saved=Метка «§e%s§r» сохранена (%d, %d, %d, И�
 saifunsmap.cmd.exists=§7Метка «§f%s§7» уже существует.
 saifunsmap.cmd.beacon_on=Временный 3D-маяк установлен: «§6%s§r» (%d, %d, %d).
 saifunsmap.cmd.beacon_off=§7Временный 3D-маяк снят.
+
+saifunsmap.quickmenu.title=Saifun's Map — Быстрое меню
+saifunsmap.quickmenu.enlarge=Увелич. карту
+saifunsmap.quickmenu.worldmap=Карта мира (%s)
+saifunsmap.quickmenu.settings=Все настройки
+saifunsmap.quickmenu.waypoints=Метки (%s)
+saifunsmap.quickmenu.add_wp=+ Метка (%s)

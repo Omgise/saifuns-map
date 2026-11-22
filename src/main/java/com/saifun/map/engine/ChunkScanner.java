@@ -37,6 +37,7 @@ public class ChunkScanner {
     private final Map<Long, Long> lastScanTime = new HashMap<>();
 
     private boolean activeCaveMode = false;
+    private boolean lastOnNetherRoof = false;
     private int lastCaveAnchorY = 64;
     private int tickCounter = 0;
     private int burstScanTicks = 0;
@@ -68,6 +69,7 @@ public class ChunkScanner {
         queuedKeys.clear();
         lastScanTime.clear();
         activeCaveMode = false;
+        lastOnNetherRoof = false;
         burstScanTicks = 0;
         forceCaveScanTicks = 0;
     }
@@ -91,17 +93,20 @@ public class ChunkScanner {
         boolean prevCave = activeCaveMode;
         activeCaveMode = detectCaveMode(world, player);
         int caveAnchorY = computeCaveAnchorY(world, player);
+        boolean onNetherRoof = world.provider.hasNoSky && player.posY >= 126.0;
+        boolean roofTransition = world.provider.hasNoSky && (onNetherRoof != lastOnNetherRoof);
+        if (roofTransition) {
+            lastOnNetherRoof = onNetherRoof;
+        }
 
-        // If player just entered cave mode or shifted vertically, burst-scan all nearby chunks immediately!
+        // If player just entered cave mode, transitioned Nether roof, or shifted vertically in Cave Mode,
+        // burst-scan the full visible radius so outer chunks stay cohesive instead of patchy!
         boolean enteredCave = activeCaveMode && !prevCave;
-        boolean caveSliceShifted = activeCaveMode && Math.abs(caveAnchorY - lastCaveAnchorY) >= 4;
-        if (enteredCave || caveSliceShifted) {
+        boolean caveSliceShifted = activeCaveMode && Math.abs(caveAnchorY - lastCaveAnchorY) >= 6;
+        if (enteredCave || caveSliceShifted || roofTransition) {
             lastCaveAnchorY = caveAnchorY;
-            int rescanRad = enteredCave ? SCAN_RADIUS_CHUNKS : 6;
-            if (enteredCave) {
-                burstScanTicks = Math.max(burstScanTicks, 14);
-            }
-            enqueueRadius(MathHelper.floor_double(player.posX) >> 4, MathHelper.floor_double(player.posZ) >> 4, rescanRad, true);
+            burstScanTicks = Math.max(burstScanTicks, (enteredCave || roofTransition) ? 16 : 10);
+            enqueueRadius(MathHelper.floor_double(player.posX) >> 4, MathHelper.floor_double(player.posZ) >> 4, SCAN_RADIUS_CHUNKS, true);
         }
 
         // Periodically enqueue surrounding chunks for fresh updates
@@ -141,7 +146,7 @@ public class ChunkScanner {
             Chunk chunk = world.getChunkFromChunkCoords(cx, cz);
             if (chunk == null || !chunk.isChunkLoaded || chunk.isEmpty()) continue;
 
-            ChunkSnapshot snap = scanChunk(world, chunk, dimId, scanCaveNow, caveAnchorY);
+            ChunkSnapshot snap = scanChunk(world, chunk, dimId, scanCaveNow, caveAnchorY, onNetherRoof);
             worldCache.submitChunkSnapshot(snap);
             lastScanTime.put(key, now);
             scanned++;
@@ -176,9 +181,11 @@ public class ChunkScanner {
         if (mode == MapConfig.CaveMode.ON) return true;
         if (mode == MapConfig.CaveMode.OFF) return false;
 
-        // AUTO: Always use cave slice in roofed / no-sky dimensions (e.g. Nether)
+        // AUTO: In roofed / no-sky dimensions (e.g. Nether), the primary map layer itself renders
+        // the full height-independent cavern (Y=122..1) and persists to disk, preventing Y-slice chaos!
+        // Only activate Y-sliced Cave Mode in the Nether when the player explicitly toggles Cave Mode ON.
         if (world.provider.hasNoSky) {
-            return true;
+            return false;
         }
 
         int px = MathHelper.floor_double(player.posX);
@@ -224,12 +231,13 @@ public class ChunkScanner {
         return Math.max(1, Math.min(250, py));
     }
 
-    private static ChunkSnapshot scanChunk(World world, Chunk chunk, int dimId, boolean scanCave, int caveAnchorY) {
+    private static ChunkSnapshot scanChunk(World world, Chunk chunk, int dimId, boolean scanCave, int caveAnchorY, boolean onNetherRoof) {
         ChunkSnapshot snap = new ChunkSnapshot(dimId, chunk.xPosition, chunk.zPosition, scanCave);
         int baseX = chunk.xPosition << 4;
         int baseZ = chunk.zPosition << 4;
         int topSeg = Math.min(255, chunk.getTopFilledSegment() + 15);
         int sliceUp = MapConfig.get().caveSliceHeight;
+        boolean roofedCavern = world.provider.hasNoSky && !onNetherRoof;
 
         for (int lz = 0; lz < 16; lz++) {
             int wz = baseZ + lz;
@@ -239,8 +247,7 @@ public class ChunkScanner {
                 int idx = rowOff + lx;
                 BiomeGenBase biome = chunk.getBiomeGenForWorldCoords(lx, lz, world.getWorldChunkManager());
 
-                // --- Surface pass ---
-                int y = Math.min(topSeg, Math.max(0, chunk.getHeightValue(lx, lz) + 1));
+                // --- Surface / Nether Cavern pass ---
                 int wDepth = 0;
                 int wColor = 0;
                 int solidRgb = 0;
@@ -249,33 +256,110 @@ public class ChunkScanner {
                 int flatAccentRgb = 0;
                 boolean snowCovered = false;
 
-                for (; y >= 0; y--) {
-                    Block block = chunk.getBlock(lx, y, lz);
-                    if (BlockColorResolver.isTransparentForSurface(block)) {
-                        continue;
-                    }
-                    int meta = chunk.getBlockMetadata(lx, y, lz);
-                    if (BlockColorResolver.isFlatAccentBlock(block)) {
-                        if (block == Blocks.snow_layer) {
-                            snowCovered = true;
-                        } else if (flatAccentRgb == 0) {
-                            flatAccentRgb = BlockColorResolver.getBlockColor(world, block, meta, wx, y, wz, biome);
+                if (roofedCavern) {
+                    // Height-independent Nether cavern scan: start just below the bedrock roof (Y=122) down to Y=1.
+                    // Requires >= 2 vertical blocks of open space so 1-block ceiling pockets don't hide the cavern below!
+                    int startY = Math.min(122, topSeg);
+                    int airStreak = 0;
+                    boolean foundOpenCavern = false;
+
+                    for (int y = startY; y >= 1; y--) {
+                        Block block = chunk.getBlock(lx, y, lz);
+                        if (block == null || block == Blocks.air) {
+                            airStreak++;
+                            if (airStreak >= 2) foundOpenCavern = true;
+                            continue;
                         }
-                        continue;
-                    }
-                    if (BlockColorResolver.isWaterLike(block)) {
-                        if (wDepth == 0) {
-                            wColor = BlockColorResolver.getBlockColor(world, block, meta, wx, y, wz, biome);
+                        Material mat = block.getMaterial();
+                        if (mat == Material.fire || BlockColorResolver.isTransparentForSurface(block)) {
+                            airStreak++;
+                            if (airStreak >= 2) foundOpenCavern = true;
+                            continue;
                         }
-                        wDepth++;
-                        continue;
+                        if (mat == Material.lava) {
+                            if (foundOpenCavern) {
+                                solidRgb = 0xEB5E1A;
+                                solidY = y;
+                                light = 15;
+                                break;
+                            }
+                            airStreak = 0;
+                            continue;
+                        }
+                        if (BlockColorResolver.isWaterLike(block)) {
+                            if (foundOpenCavern) {
+                                if (wDepth == 0) {
+                                    int meta = chunk.getBlockMetadata(lx, y, lz);
+                                    wColor = BlockColorResolver.getBlockColor(world, block, meta, wx, y, wz, biome);
+                                }
+                                wDepth++;
+                            } else {
+                                airStreak = 0;
+                            }
+                            continue;
+                        }
+                        if (BlockColorResolver.isFlatAccentBlock(block)) {
+                            if (foundOpenCavern) {
+                                if (flatAccentRgb == 0) {
+                                    int meta = chunk.getBlockMetadata(lx, y, lz);
+                                    flatAccentRgb = BlockColorResolver.getBlockColor(world, block, meta, wx, y, wz, biome);
+                                }
+                            } else {
+                                airStreak++;
+                                if (airStreak >= 2) foundOpenCavern = true;
+                            }
+                            continue;
+                        }
+                        if (!mat.blocksMovement()) {
+                            airStreak++;
+                            if (airStreak >= 2) foundOpenCavern = true;
+                            continue;
+                        }
+
+                        // Solid block encountered
+                        if (!foundOpenCavern) {
+                            airStreak = 0;
+                            continue;
+                        }
+                        int meta = chunk.getBlockMetadata(lx, y, lz);
+                        solidRgb = BlockColorResolver.getBlockColor(world, block, meta, wx, y, wz, biome);
+                        solidY = y;
+                        if (y + 1 < 256) {
+                            light = chunk.getSavedLightValue(EnumSkyBlock.Block, lx, y + 1, lz);
+                        }
+                        break;
                     }
-                    solidRgb = BlockColorResolver.getBlockColor(world, block, meta, wx, y, wz, biome);
-                    solidY = y;
-                    if (y + 1 < 256) {
-                        light = chunk.getSavedLightValue(EnumSkyBlock.Block, lx, y + 1, lz);
+                } else {
+                    int minSurfaceY = onNetherRoof ? 126 : 0;
+                    int y = Math.min(topSeg, Math.max(minSurfaceY, chunk.getHeightValue(lx, lz) + 1));
+                    for (; y >= minSurfaceY; y--) {
+                        Block block = chunk.getBlock(lx, y, lz);
+                        if (BlockColorResolver.isTransparentForSurface(block)) {
+                            continue;
+                        }
+                        int meta = chunk.getBlockMetadata(lx, y, lz);
+                        if (BlockColorResolver.isFlatAccentBlock(block)) {
+                            if (block == Blocks.snow_layer) {
+                                snowCovered = true;
+                            } else if (flatAccentRgb == 0) {
+                                flatAccentRgb = BlockColorResolver.getBlockColor(world, block, meta, wx, y, wz, biome);
+                            }
+                            continue;
+                        }
+                        if (BlockColorResolver.isWaterLike(block)) {
+                            if (wDepth == 0) {
+                                wColor = BlockColorResolver.getBlockColor(world, block, meta, wx, y, wz, biome);
+                            }
+                            wDepth++;
+                            continue;
+                        }
+                        solidRgb = BlockColorResolver.getBlockColor(world, block, meta, wx, y, wz, biome);
+                        solidY = y;
+                        if (y + 1 < 256) {
+                            light = chunk.getSavedLightValue(EnumSkyBlock.Block, lx, y + 1, lz);
+                        }
+                        break;
                     }
-                    break;
                 }
 
                 if (solidRgb == 0 && wDepth > 0) {
@@ -283,8 +367,8 @@ public class ChunkScanner {
                     solidY = 0;
                 } else if (snowCovered && wDepth == 0) {
                     solidRgb = 0xEDF4FA;
-                } else if (flatAccentRgb != 0 && wDepth == 0) {
-                    // Subtle flower/flora fleck on top of smooth grass
+                } else if (flatAccentRgb != 0 && wDepth == 0 && solidRgb != 0 && solidRgb != 0xEB5E1A) {
+                    // Subtle flower/flora fleck on top of smooth grass/floor
                     solidRgb = BlockColorResolver.blendColor(solidRgb, flatAccentRgb, 0.58f);
                 }
 
@@ -294,13 +378,13 @@ public class ChunkScanner {
                 snap.waterRgb[idx] = wColor;
                 snap.blockLight[idx] = (byte) light;
 
-                // --- Cave / Nether slice pass ---
+                // --- Explicit Cave / Underground Y-slice pass ---
                 if (scanCave) {
                     // In sky dimensions, strictly start BELOW the top solid surface (solidY - 1) with foundAir=false
                     // so open-sky grass, trees, and rivers NEVER bleed into Cave Mode!
-                    int ceilingCap = world.provider.hasNoSky ? 124 : Math.min(254, solidY - 1);
+                    int ceilingCap = world.provider.hasNoSky ? 122 : Math.min(254, solidY - 1);
                     int maxY = Math.min(ceilingCap, caveAnchorY + sliceUp);
-                    int minY = Math.max(1, caveAnchorY - 32);
+                    int minY = Math.max(1, caveAnchorY - 48);
                     // Step down from maxY: first find open underground air pocket, then first solid floor (or lava/water)
                     boolean foundAir = false;
                     int caveCol = 0;

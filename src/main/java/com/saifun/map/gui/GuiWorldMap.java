@@ -6,6 +6,7 @@ import com.saifun.map.config.MapConfig;
 import com.saifun.map.engine.ChunkScanner;
 import com.saifun.map.engine.MapRegion;
 import com.saifun.map.engine.MapWorldCache;
+import com.saifun.map.input.MapKeybinds;
 import com.saifun.map.radar.EntityCategory;
 import com.saifun.map.radar.EntityIconRenderer;
 import com.saifun.map.radar.EntityRadarManager;
@@ -483,7 +484,8 @@ public class GuiWorldMap extends GuiScreen {
             requestSmoothClose();
             return;
         }
-        if (keyCode == Keyboard.KEY_M) {
+        int worldMapKey = MapKeybinds.KEY_WORLD_MAP.getKeyCode();
+        if (worldMapKey != Keyboard.KEY_NONE && keyCode == worldMapKey) {
             requestSmoothClose();
             return;
         }
