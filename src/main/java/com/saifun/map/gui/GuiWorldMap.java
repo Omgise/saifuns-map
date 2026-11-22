@@ -1,6 +1,7 @@
 package com.saifun.map.gui;
 
 import com.saifun.map.compat.IGtnhLayerBridge;
+import com.saifun.map.compat.ShareWhereIAmBridge;
 import com.saifun.map.config.MapConfig;
 import com.saifun.map.engine.ChunkScanner;
 import com.saifun.map.engine.MapRegion;
@@ -125,6 +126,8 @@ public class GuiWorldMap extends GuiScreen {
     private int contextMenuY;
     private int contextBlockX;
     private int contextBlockZ;
+    private Waypoint contextTargetWaypoint = null;
+    private Waypoint lastHoveredWaypoint = null;
 
     // GTNH Navigator search bar
     private GuiTextField searchField;
@@ -252,9 +255,10 @@ public class GuiWorldMap extends GuiScreen {
         if (mouseButton == 1) {
             contextMenuOpen = true;
             contextMenuX = Math.min(mouseX, this.width - 134);
-            contextMenuY = Math.min(mouseY, this.height - 96);
+            contextMenuY = Math.min(mouseY, this.height - 114);
             contextBlockX = MathHelper.floor_double(screenToWorldX(mouseX));
             contextBlockZ = MathHelper.floor_double(screenToWorldZ(mouseY));
+            contextTargetWaypoint = lastHoveredWaypoint != null ? lastHoveredWaypoint : gtnhBridge.getHoveredShareWaypoint();
             return;
         }
 
@@ -391,6 +395,18 @@ public class GuiWorldMap extends GuiScreen {
         if (keyCode == Keyboard.KEY_M) {
             requestSmoothClose();
             return;
+        }
+
+        if (!Keyboard.isRepeatEvent() && keyCode == ShareWhereIAmBridge.getShareKeyCode()) {
+            Waypoint navShare = gtnhBridge.getHoveredShareWaypoint();
+            if (navShare != null) {
+                WaypointManager.shareInChat(navShare, "VisualProspecting");
+                return;
+            }
+            if (lastHoveredWaypoint != null) {
+                WaypointManager.shareInChat(lastHoveredWaypoint);
+                return;
+            }
         }
 
         if (!Keyboard.isRepeatEvent() && gtnhBridge.onKeyPressed(keyCode)) {
@@ -602,6 +618,7 @@ public class GuiWorldMap extends GuiScreen {
 
             // 6. Waypoints
             Waypoint hoveredWp = renderWorldWaypoints(world.provider.dimensionId, cxScreen, cyScreen, mouseX, mouseY);
+            lastHoveredWaypoint = hoveredWp;
 
             // 7. Crisp red-accent Xaero player arrow
             double pSx = worldToScreenX(player.posX, cxScreen);
@@ -1015,8 +1032,10 @@ public class GuiWorldMap extends GuiScreen {
     }
 
     private void renderContextMenu(int mouseX, int mouseY) {
+        String shareLabel = contextTargetWaypoint != null ? "Share Point" : "Share Location";
         String[] items = {
             "Add Waypoint Here",
+            shareLabel,
             "Teleport Here (/tp)",
             "Copy Coordinates",
             "Center on Player"
@@ -1038,7 +1057,7 @@ public class GuiWorldMap extends GuiScreen {
 
     private boolean handleContextMenuClick(int mouseX, int mouseY) {
         int w = 128;
-        int h = 4 * 18 + 6;
+        int h = 5 * 18 + 6;
         if (mouseX < contextMenuX || mouseX > contextMenuX + w || mouseY < contextMenuY || mouseY > contextMenuY + h) {
             return false;
         }
@@ -1052,10 +1071,22 @@ public class GuiWorldMap extends GuiScreen {
                 }
                 return true;
             case 1:
+                if (contextTargetWaypoint != null) {
+                    WaypointManager.shareInChat(contextTargetWaypoint);
+                } else if (mc.theWorld != null) {
+                    String label = mc.thePlayer != null ? mc.thePlayer.getDisplayName() : "Shared Point";
+                    Waypoint shared = new Waypoint(
+                        label, null, contextBlockX, y, contextBlockZ,
+                        mc.theWorld.provider.dimensionId, WaypointManager.pickRandomColor(), Waypoint.Type.NORMAL
+                    );
+                    WaypointManager.shareInChat(shared);
+                }
+                return true;
+            case 2:
                 WaypointManager.teleportTo(contextBlockX, y, contextBlockZ);
                 mc.displayGuiScreen(null);
                 return true;
-            case 2:
+            case 3:
                 try {
                     String coords = contextBlockX + " " + y + " " + contextBlockZ;
                     Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(coords), null);
@@ -1064,7 +1095,7 @@ public class GuiWorldMap extends GuiScreen {
                     }
                 } catch (Throwable ignored) {}
                 return true;
-            case 3:
+            case 4:
                 if (mc.thePlayer != null) {
                     glideTargetX = mc.thePlayer.posX;
                     glideTargetZ = mc.thePlayer.posZ;

@@ -1,6 +1,7 @@
 package com.saifun.map;
 
 import com.saifun.map.compat.IGtnhLayerBridge;
+import com.saifun.map.compat.ShareWhereIAmBridge;
 import com.saifun.map.config.MapConfig;
 import com.saifun.map.engine.ChunkScanner;
 import com.saifun.map.engine.MapWorldCache;
@@ -18,6 +19,7 @@ import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.InputEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.MathHelper;
 import net.minecraftforge.client.event.ClientChatReceivedEvent;
@@ -25,8 +27,15 @@ import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.event.world.ChunkEvent;
 import net.minecraftforge.event.world.WorldEvent;
+import org.lwjgl.input.Keyboard;
 
 public class ClientEventHandler {
+
+    private static volatile GuiScreen pendingScreenToOpen = null;
+
+    public static void scheduleOpenScreen(GuiScreen screen) {
+        pendingScreenToOpen = screen;
+    }
 
     private final MapWorldCache worldCache;
     private final ChunkScanner chunkScanner;
@@ -69,6 +78,11 @@ public class ClientEventHandler {
     @SubscribeEvent
     public void onClientTick(TickEvent.ClientTickEvent event) {
         if (event.phase != TickEvent.Phase.END) return;
+        if (pendingScreenToOpen != null) {
+            GuiScreen next = pendingScreenToOpen;
+            pendingScreenToOpen = null;
+            Minecraft.getMinecraft().displayGuiScreen(next);
+        }
         chunkScanner.onClientTick();
         waypointManager.onClientTick();
     }
@@ -95,13 +109,12 @@ public class ClientEventHandler {
         Minecraft mc = Minecraft.getMinecraft();
         if (mc.theWorld == null || mc.thePlayer == null) return;
 
-        // Parse shared JourneyMap / Xaero waypoints from teammates in chat
+        // Parse plain-text shared JourneyMap / Xaero waypoints from chat and present clickable [Save] [Edit] [Beacon] buttons!
         String raw = event.message.getUnformattedText();
         if (raw.startsWith("[Saifun's Map]")) return;
         Waypoint shared = WaypointManager.tryParseChatWaypoint(raw, mc.theWorld.provider.dimensionId);
-        if (shared != null && waypointManager.addIfNotDuplicate(shared)) {
-            waypointManager.save();
-            notifyPlayer("Added shared waypoint '\u00a7e" + shared.name + "\u00a7r' (" + shared.x + ", " + shared.y + ", " + shared.z + ")");
+        if (shared != null) {
+            mc.func_152344_a(() -> WaypointManager.postClickableShareChat(null, shared, null));
         }
     }
 
@@ -109,6 +122,14 @@ public class ClientEventHandler {
     public void onKeyInput(InputEvent.KeyInputEvent event) {
         Minecraft mc = Minecraft.getMinecraft();
         if (mc.currentScreen != null || mc.theWorld == null || mc.thePlayer == null) return;
+
+        // Support GTNH ShareWhereIAm in-world Insert hotkey even when JourneyMap is disabled
+        if (ShareWhereIAmBridge.isAvailable() && !ShareWhereIAmBridge.isJourneyMapLoaded()
+            && Keyboard.getEventKeyState() && !Keyboard.isRepeatEvent()
+            && Keyboard.getEventKey() == ShareWhereIAmBridge.getShareKeyCode()) {
+            ShareWhereIAmBridge.handleInWorldShareHotkey();
+            return;
+        }
 
         MapConfig cfg = MapConfig.get();
 

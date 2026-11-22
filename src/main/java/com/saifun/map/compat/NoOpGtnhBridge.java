@@ -57,4 +57,7 @@ public final class NoOpGtnhBridge implements IGtnhLayerBridge {
 
     @Override
     public void drawHoveredCustomTooltip(FontRenderer fr, int mouseX, int mouseY, int screenW, int screenH) {}
+
+    @Override
+    public com.saifun.map.waypoints.Waypoint getHoveredShareWaypoint() { return null; }
 }

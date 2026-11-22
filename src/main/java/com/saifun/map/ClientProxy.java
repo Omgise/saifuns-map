@@ -2,6 +2,7 @@ package com.saifun.map;
 
 import com.saifun.map.compat.GtnhBridgeFactory;
 import com.saifun.map.compat.IGtnhLayerBridge;
+import com.saifun.map.compat.ShareWhereIAmBridge;
 import com.saifun.map.config.MapConfig;
 import com.saifun.map.engine.BlockColorResolver;
 import com.saifun.map.engine.ChunkScanner;
@@ -10,6 +11,7 @@ import com.saifun.map.input.MapKeybinds;
 import com.saifun.map.radar.EntityIconRenderer;
 import com.saifun.map.radar.EntityRadarManager;
 import com.saifun.map.render.MinimapRenderer;
+import com.saifun.map.waypoints.CommandSaifunsMap;
 import com.saifun.map.waypoints.WaypointManager;
 import com.saifun.map.waypoints.WaypointWorldRenderer;
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -18,6 +20,7 @@ import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.IReloadableResourceManager;
+import net.minecraftforge.client.ClientCommandHandler;
 import net.minecraftforge.common.MinecraftForge;
 
 import java.io.File;
@@ -71,11 +74,13 @@ public class ClientProxy extends CommonProxy {
         );
         FMLCommonHandler.instance().bus().register(eventHandler);
         MinecraftForge.EVENT_BUS.register(eventHandler);
+        ClientCommandHandler.instance.registerCommand(new CommandSaifunsMap(this.waypointManager));
     }
 
     @Override
     public void postInit(FMLPostInitializationEvent event) {
         super.postInit(event);
+        ShareWhereIAmBridge.init(this.waypointManager);
         if (Minecraft.getMinecraft().getResourceManager() instanceof IReloadableResourceManager) {
             ((IReloadableResourceManager) Minecraft.getMinecraft().getResourceManager())
                 .registerReloadListener(rm -> {
@@ -83,8 +88,10 @@ public class ClientProxy extends CommonProxy {
                     EntityIconRenderer.clearCache();
                 });
         }
-        SaifunsMapMod.LOG.info("{} {} client initialized (GTNH Navigator bridge: {}).",
-            SaifunsMapMod.NAME, Tags.VERSION, gtnhBridge != null && gtnhBridge.isAvailable() ? "ACTIVE" : "inactive");
+        SaifunsMapMod.LOG.info("{} {} client initialized (GTNH Navigator bridge: {}, ShareWhereIAm bridge: {}).",
+            SaifunsMapMod.NAME, Tags.VERSION,
+            gtnhBridge != null && gtnhBridge.isAvailable() ? "ACTIVE" : "inactive",
+            ShareWhereIAmBridge.isAvailable() ? "ACTIVE" : "inactive");
     }
 
     public MapWorldCache getWorldCache() {

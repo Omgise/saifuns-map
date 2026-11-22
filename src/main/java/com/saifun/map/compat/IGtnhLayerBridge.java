@@ -66,4 +66,10 @@ public interface IGtnhLayerBridge {
     List<String> getHoveredTooltip();
 
     void drawHoveredCustomTooltip(FontRenderer fontRenderer, int mouseX, int mouseY, int screenWidth, int screenHeight);
+
+    /**
+     * Returns a shareable Waypoint for the currently hovered Navigator interactable element
+     * (e.g. VisualProspecting Ore Vein or Thaumcraft Node), or null if none is hovered.
+     */
+    com.saifun.map.waypoints.Waypoint getHoveredShareWaypoint();
 }

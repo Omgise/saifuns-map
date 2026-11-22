@@ -17,6 +17,7 @@ public class GuiWaypointEdit extends GuiScreen {
     private final GuiScreen parent;
     private final WaypointManager manager;
     private final Waypoint editing;
+    private final String defaultName;
     private final int defaultX, defaultY, defaultZ, defaultDim;
 
     private GuiTextField nameField;
@@ -35,15 +36,34 @@ public class GuiWaypointEdit extends GuiScreen {
         Waypoint editing,
         int x, int y, int z, int dim
     ) {
+        this(
+            parent,
+            manager,
+            editing,
+            editing != null ? editing.name : "New Waypoint",
+            x, y, z, dim,
+            editing != null ? (editing.color & 0xFFFFFF) : WaypointManager.pickRandomColor()
+        );
+    }
+
+    public GuiWaypointEdit(
+        GuiScreen parent,
+        WaypointManager manager,
+        Waypoint editing,
+        String presetName,
+        int x, int y, int z, int dim,
+        int presetColor
+    ) {
         this.parent = parent;
         this.manager = manager;
         this.editing = editing;
+        this.defaultName = (editing != null ? editing.name : (presetName != null && !presetName.trim().isEmpty() ? presetName.trim() : "New Waypoint"));
         this.defaultX = editing != null ? editing.x : x;
         this.defaultY = editing != null ? editing.y : y;
         this.defaultZ = editing != null ? editing.z : z;
         this.defaultDim = editing != null ? editing.dimensionId : dim;
         this.enabled = editing == null || editing.enabled;
-        this.currentColor = editing != null ? (editing.color & 0xFFFFFF) : WaypointManager.pickRandomColor();
+        this.currentColor = editing != null ? (editing.color & 0xFFFFFF) : (presetColor & 0xFFFFFF);
     }
 
     @Override
@@ -52,7 +72,7 @@ public class GuiWaypointEdit extends GuiScreen {
         this.buttonList.clear();
 
         // Preserve user edits across window resizes (F11 / GUI scale changes)
-        String prevName = nameField != null ? nameField.getText() : (editing != null ? editing.name : "New Waypoint");
+        String prevName = nameField != null ? nameField.getText() : defaultName;
         String prevInit = initialsField != null ? initialsField.getText() : (editing != null ? editing.initials : "");
         String prevX = xField != null ? xField.getText() : String.valueOf(defaultX);
         String prevY = yField != null ? yField.getText() : String.valueOf(defaultY);

@@ -10,6 +10,7 @@ import com.gtnewhorizons.navigator.api.model.layers.LayerRenderer;
 import com.gtnewhorizons.navigator.api.model.layers.UniversalInteractableRenderer;
 import com.gtnewhorizons.navigator.api.model.layers.UniversalLayerRenderer;
 import com.gtnewhorizons.navigator.api.model.locations.ILocationProvider;
+import com.gtnewhorizons.navigator.api.model.locations.IWaypointAndLocationProvider;
 import com.gtnewhorizons.navigator.api.model.steps.UniversalLocationInteractableStep;
 import com.gtnewhorizons.navigator.api.model.steps.UniversalRenderStep;
 import com.gtnewhorizons.navigator.api.model.waypoints.Waypoint;
@@ -567,6 +568,38 @@ public class NavigatorBridge implements IGtnhLayerBridge {
                 } catch (Throwable ignored) {}
             }
         }
+    }
+
+    @Override
+    public com.saifun.map.waypoints.Waypoint getHoveredShareWaypoint() {
+        if (!isAvailable() || !MapConfig.get().showNavigatorOnWorldMap || hoveredStepField == null) return null;
+        List<UniversalLayerRenderer> active = collectActiveRenderersSorted();
+        for (int i = active.size() - 1; i >= 0; i--) {
+            UniversalLayerRenderer ulr = active.get(i);
+            if (!(ulr instanceof UniversalInteractableRenderer)) continue;
+            try {
+                Object hoveredObj = hoveredStepField.get(ulr);
+                if (hoveredObj instanceof UniversalLocationInteractableStep) {
+                    ILocationProvider loc = ((UniversalLocationInteractableStep<?>) hoveredObj).getLocation();
+                    if (loc instanceof IWaypointAndLocationProvider) {
+                        Waypoint navWp = ((IWaypointAndLocationProvider) loc).toWaypoint();
+                        if (navWp != null) {
+                            return new com.saifun.map.waypoints.Waypoint(
+                                navWp.label != null ? navWp.label : "Shared Target",
+                                null,
+                                navWp.blockX,
+                                navWp.blockY > 0 ? navWp.blockY : 70,
+                                navWp.blockZ,
+                                navWp.dimensionId,
+                                navWp.color & 0xFFFFFF,
+                                com.saifun.map.waypoints.Waypoint.Type.NORMAL
+                            );
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {}
+        }
+        return null;
     }
 
     private List<UniversalLayerRenderer> collectActiveRenderersSorted() {

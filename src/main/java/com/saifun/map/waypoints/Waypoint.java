@@ -10,7 +10,8 @@ public class Waypoint {
     public enum Type {
         NORMAL,
         DEATH,
-        NAVIGATOR
+        NAVIGATOR,
+        SHARED_BEACON
     }
 
     public String id;
@@ -25,6 +26,7 @@ public class Waypoint {
     public boolean temporary = false;
     public Type type = Type.NORMAL;
     public long createdAt;
+    public transient long expiresAt = 0L;
 
     public Waypoint() {}
 
