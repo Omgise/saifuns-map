@@ -51,6 +51,13 @@ public class GuiWaypointEdit extends GuiScreen {
         Keyboard.enableRepeatEvents(true);
         this.buttonList.clear();
 
+        // Preserve user edits across window resizes (F11 / GUI scale changes)
+        String prevName = nameField != null ? nameField.getText() : (editing != null ? editing.name : "New Waypoint");
+        String prevInit = initialsField != null ? initialsField.getText() : (editing != null ? editing.initials : "");
+        String prevX = xField != null ? xField.getText() : String.valueOf(defaultX);
+        String prevY = yField != null ? yField.getText() : String.valueOf(defaultY);
+        String prevZ = zField != null ? zField.getText() : String.valueOf(defaultZ);
+
         int panelW = 292;
         int panelH = 236;
         int panelX = (this.width - panelW) / 2;
@@ -58,21 +65,21 @@ public class GuiWaypointEdit extends GuiScreen {
 
         nameField = new GuiTextField(this.fontRendererObj, panelX + 12, panelY + 32, 206, 16);
         nameField.setMaxStringLength(48);
-        nameField.setText(editing != null ? editing.name : "New Waypoint");
+        nameField.setText(prevName);
         nameField.setFocused(true);
 
         initialsField = new GuiTextField(this.fontRendererObj, panelX + 226, panelY + 32, 54, 16);
         initialsField.setMaxStringLength(2);
-        initialsField.setText(editing != null ? editing.initials : "");
+        initialsField.setText(prevInit);
 
         xField = new GuiTextField(this.fontRendererObj, panelX + 12, panelY + 66, 84, 16);
-        xField.setText(String.valueOf(defaultX));
+        xField.setText(prevX);
 
         yField = new GuiTextField(this.fontRendererObj, panelX + 104, panelY + 66, 84, 16);
-        yField.setText(String.valueOf(defaultY));
+        yField.setText(prevY);
 
         zField = new GuiTextField(this.fontRendererObj, panelX + 196, panelY + 66, 84, 16);
-        zField.setText(String.valueOf(defaultZ));
+        zField.setText(prevZ);
 
         // Interactive HSV Color Picker (left side) + Hex + Live Preview + Presets (right side)
         colorPicker = new ColorPickerWidget(panelX + 12, panelY + 94, 92, 14, currentColor);
@@ -149,6 +156,20 @@ public class GuiWaypointEdit extends GuiScreen {
         }
         if (keyCode == Keyboard.KEY_RETURN || keyCode == Keyboard.KEY_NUMPADENTER) {
             saveAndClose();
+            return;
+        }
+        if (keyCode == Keyboard.KEY_TAB) {
+            GuiTextField[] fields = { nameField, initialsField, xField, yField, zField, hexField };
+            int cur = 0;
+            for (int i = 0; i < fields.length; i++) {
+                if (fields[i].isFocused()) {
+                    cur = i;
+                    fields[i].setFocused(false);
+                    break;
+                }
+            }
+            int next = (cur + (isShiftKeyDown() ? fields.length - 1 : 1)) % fields.length;
+            fields[next].setFocused(true);
             return;
         }
         nameField.textboxKeyTyped(typedChar, keyCode);

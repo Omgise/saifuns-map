@@ -43,10 +43,15 @@ public class Waypoint {
     }
 
     public static String normalizeInitials(String initials, String fallbackName) {
-        String raw = (initials != null && !initials.trim().isEmpty()) ? initials.trim() : fallbackName;
-        if (raw == null || raw.isEmpty()) return "W";
-        raw = raw.trim();
-        return raw.length() <= 2 ? raw.toUpperCase() : raw.substring(0, 2).toUpperCase();
+        if (initials != null && !initials.trim().isEmpty()) {
+            String t = initials.trim();
+            return t.length() <= 2 ? t.toUpperCase() : t.substring(0, 2).toUpperCase();
+        }
+        if (fallbackName == null || fallbackName.trim().isEmpty()) return "W";
+        // Strip leading punctuation (e.g. ",base" -> "BA") when deriving automatic initials
+        String cleaned = fallbackName.trim().replaceAll("^[^\\p{L}\\p{N}]+", "");
+        if (cleaned.isEmpty()) cleaned = fallbackName.trim();
+        return cleaned.length() <= 2 ? cleaned.toUpperCase() : cleaned.substring(0, 2).toUpperCase();
     }
 
     public int getArgb(int alpha) {

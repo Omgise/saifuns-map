@@ -34,12 +34,14 @@ import java.util.UUID;
 public class EntityRadarManager {
 
     private static final long REMOTE_PLAYER_TTL_MS = 5000L;
+    private static final Comparator<RadarEntity> PRIORITY_COMPARATOR = Comparator.comparingInt(e -> priority(e.category));
 
     private volatile int remoteDimension = Integer.MIN_VALUE;
     private volatile long lastRemoteUpdateMs = 0L;
     private volatile List<PacketPlayerPositions.PlayerPos> remotePlayers = Collections.emptyList();
 
-    private final List<RadarEntity> snapshot = new ArrayList<>();
+    private final List<RadarEntity> snapshot = new ArrayList<>(128);
+    private final Set<UUID> seenPlayers = new HashSet<>(16);
 
     public void updateRemotePlayers(int dimensionId, List<PacketPlayerPositions.PlayerPos> players) {
         this.remoteDimension = dimensionId;
@@ -63,7 +65,7 @@ public class EntityRadarManager {
         EntityClientPlayerMP self = mc.thePlayer;
         if (world == null || self == null) return snapshot;
 
-        Set<UUID> seenPlayers = new HashSet<>();
+        seenPlayers.clear();
         seenPlayers.add(self.getUniqueID());
 
         @SuppressWarnings("unchecked")
@@ -79,11 +81,9 @@ public class EntityRadarManager {
             double ey = entity.lastTickPosY + (entity.posY - entity.lastTickPosY) * partialTicks;
             double ez = entity.lastTickPosZ + (entity.posZ - entity.lastTickPosZ) * partialTicks;
 
-            String name = entity instanceof EntityPlayer
-                ? ((EntityPlayer) entity).getCommandSenderName()
-                : entity.getCommandSenderName();
-
+            String name = null;
             if (entity instanceof EntityPlayer) {
+                name = ((EntityPlayer) entity).getCommandSenderName();
                 seenPlayers.add(entity.getUniqueID());
             }
 
@@ -141,7 +141,7 @@ public class EntityRadarManager {
             }
         }
 
-        snapshot.sort(Comparator.comparingInt(e -> priority(e.category)));
+        snapshot.sort(PRIORITY_COMPARATOR);
         return snapshot;
     }
 

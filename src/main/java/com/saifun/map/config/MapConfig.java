@@ -177,6 +177,12 @@ public class MapConfig {
         }
     }
 
+    public static void resetToDefaults() {
+        instance = new MapConfig();
+        instance.clampValues();
+        save();
+    }
+
     public void clampValues() {
         if (minimapSize < 56) minimapSize = 56;
         if (minimapSize > 260) minimapSize = 260;

@@ -55,7 +55,11 @@ public final class BlockColorResolver {
             return baseRgb;
         }
 
-        return applyBiomeTint(block, meta, baseRgb, x, z, biome);
+        try {
+            return applyBiomeTint(block, meta, baseRgb, x, z, biome);
+        } catch (Throwable ignored) {
+            return baseRgb;
+        }
     }
 
     public static boolean isWaterLike(Block block) {

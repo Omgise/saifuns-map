@@ -78,6 +78,7 @@ public class GuiWorldMap extends GuiScreen {
     private final WaypointManager waypointManager;
     private final IGtnhLayerBridge gtnhBridge;
 
+    private boolean initialized = false;
     private double centerX;
     private double centerZ;
     private double targetZoom = 1.5;
@@ -142,13 +143,17 @@ public class GuiWorldMap extends GuiScreen {
     @Override
     public void initGui() {
         Keyboard.enableRepeatEvents(true);
+        dragging = false;
         EntityClientPlayerMP player = mc.thePlayer;
-        if (player != null && centerX == 0.0 && centerZ == 0.0) {
-            centerX = player.posX;
-            centerZ = player.posZ;
+        if (!initialized) {
+            if (player != null) {
+                centerX = player.posX;
+                centerZ = player.posZ;
+            }
+            caveModeView = chunkScanner.isCaveModeActive();
+            gtnhBridge.onWorldMapOpened();
+            initialized = true;
         }
-        caveModeView = chunkScanner.isCaveModeActive();
-        gtnhBridge.onWorldMapOpened();
         lastFrameNanos = System.nanoTime();
 
         searchField = new GuiTextField(this.fontRendererObj, this.width / 2 - 96, this.height - 26, 192, 16);
@@ -161,19 +166,19 @@ public class GuiWorldMap extends GuiScreen {
         uiButtons.clear();
         MapConfig cfg = MapConfig.get();
 
-        // Top-left Gear (Settings) — matching modern Xaero screenshot #7
-        uiButtons.add(new IconButton(BTN_SETTINGS, 8, 8, 18, "Settings (Y)", false));
+        // Top-left Gear (Settings)
+        uiButtons.add(new IconButton(BTN_SETTINGS, 8, 8, 22, "Settings (Y)", false));
 
-        // Bottom-right sleek vertical icon rail — matching modern Xaero screenshot #7
-        int rx = this.width - 24;
-        int bs = 18;
-        int step = 21;
+        // Bottom-right vertical icon rail
+        int bs = 22;
+        int rx = this.width - bs - 8;
+        int step = bs + 3;
         int count = 7;
         int startY = this.height - 10 - count * step;
 
         uiButtons.add(new IconButton(BTN_ZOOM_IN, rx, startY, bs, "Zoom In (+)", false));
         uiButtons.add(new IconButton(BTN_ZOOM_OUT, rx, startY + step, bs, "Zoom Out (-)", false));
-        uiButtons.add(new IconButton(BTN_CENTER, rx, startY + step * 2, bs, "Center on Player", false));
+        uiButtons.add(new IconButton(BTN_CENTER, rx, startY + step * 2, bs, "Center on Player (C)", false));
         uiButtons.add(new IconButton(BTN_CAVE, rx, startY + step * 3, bs, caveModeView ? "Cave Mode (ON)" : "Surface Mode", caveModeView));
         uiButtons.add(new IconButton(BTN_ORE_GRID, rx, startY + step * 4, bs, cfg.showOreVeinGrid ? "GT Ore Vein Grid 3x3 (ON)" : "GT Ore Vein Grid 3x3 (OFF)", cfg.showOreVeinGrid));
         uiButtons.add(new IconButton(BTN_CHUNK_GRID, rx, startY + step * 5, bs, cfg.showChunkGrid ? "Chunk Grid 16x16 (ON)" : "Chunk Grid 16x16 (OFF)", cfg.showChunkGrid));
@@ -267,7 +272,7 @@ public class GuiWorldMap extends GuiScreen {
             if (!b.hit(mouseX, mouseY)) continue;
             switch (b.id) {
                 case BTN_SETTINGS:
-                    mc.displayGuiScreen(new GuiMapSettings());
+                    mc.displayGuiScreen(new GuiMapSettings(this));
                     return true;
                 case BTN_ZOOM_IN:
                     triggerSmoothZoom(1.45, this.width * 0.5, this.height * 0.5);
@@ -367,7 +372,15 @@ public class GuiWorldMap extends GuiScreen {
             return;
         }
 
-        if (keyCode == Keyboard.KEY_ESCAPE || keyCode == Keyboard.KEY_M) {
+        if (keyCode == Keyboard.KEY_ESCAPE) {
+            if (contextMenuOpen) {
+                contextMenuOpen = false;
+                return;
+            }
+            mc.displayGuiScreen(null);
+            return;
+        }
+        if (keyCode == Keyboard.KEY_M) {
             mc.displayGuiScreen(null);
             return;
         }
@@ -387,7 +400,7 @@ public class GuiWorldMap extends GuiScreen {
         } else if (keyCode == Keyboard.KEY_U) {
             mc.displayGuiScreen(new GuiWaypoints(this, waypointManager));
         } else if (keyCode == Keyboard.KEY_Y) {
-            mc.displayGuiScreen(new GuiMapSettings());
+            mc.displayGuiScreen(new GuiMapSettings(this));
         }
     }
 
@@ -856,16 +869,19 @@ public class GuiWorldMap extends GuiScreen {
         }
     }
 
+    private static final int NAV_BTN_SIZE = 26;
+    private static final int NAV_BTN_GAP = 5;
+
     private String renderLayerToolbar(int mouseX, int mouseY) {
         List<IGtnhLayerBridge.LayerButtonInfo> buttons = gtnhBridge.getLayerButtons();
         if (buttons.isEmpty()) return null;
 
-        // Sleek bottom-left vertical strip (matching Xaero screenshot #7!)
-        int btnSize = 20;
-        int gap = 3;
-        int startX = 8;
+        // Comfortable larger bottom-left GTNH Navigator layer icons (26x26, 20px crisp icon!)
+        int btnSize = NAV_BTN_SIZE;
+        int gap = NAV_BTN_GAP;
+        int startX = 10;
         int totalH = buttons.size() * (btnSize + gap);
-        int startY = this.height - 10 - totalH;
+        int startY = this.height - 14 - totalH;
         String hoveredText = null;
 
         for (int i = 0; i < buttons.size(); i++) {
@@ -873,10 +889,9 @@ public class GuiWorldMap extends GuiScreen {
             int by = startY + i * (btnSize + gap);
             boolean hover = mouseX >= startX && mouseX <= startX + btnSize && mouseY >= by && mouseY <= by + btnSize;
 
-            // Clean borderless resting state; sleek soft highlight pill on active/hover!
             if (b.active) {
                 GLDraw.rect(startX, by, startX + btnSize, by + btnSize, 0xAA2563EB);
-                GLDraw.rect(startX, by, startX + 2, by + btnSize, 0xFF93C5FD);
+                GLDraw.rect(startX, by, startX + 2.5, by + btnSize, 0xFF93C5FD);
             } else if (hover) {
                 GLDraw.rect(startX, by, startX + btnSize, by + btnSize, 0x881E293B);
             }
@@ -884,13 +899,13 @@ public class GuiWorldMap extends GuiScreen {
             if (b.icon != null) {
                 GLDraw.ensureBlend();
                 GL11.glEnable(GL11.GL_TEXTURE_2D);
-                GL11.glColor4f(1.0f, 1.0f, 1.0f, b.active ? 1.0f : (hover ? 0.95f : 0.78f));
+                GL11.glColor4f(1.0f, 1.0f, 1.0f, b.active ? 1.0f : (hover ? 0.96f : 0.82f));
                 Minecraft.getMinecraft().getTextureManager().bindTexture(b.icon);
                 GLDraw.texturedQuad(startX + 3, by + 3, startX + btnSize - 3, by + btnSize - 3, 0, 0, 1, 1);
                 GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
             } else {
                 String ch = b.label.isEmpty() ? "L" : b.label.substring(0, 1).toUpperCase();
-                GLDraw.drawCenteredText(this.fontRendererObj, ch, startX + btnSize * 0.5, by + 6, 0.8f, 0xFFFFFFFF);
+                GLDraw.drawCenteredText(this.fontRendererObj, ch, startX + btnSize * 0.5, by + 9, 0.95f, 0xFFFFFFFF);
             }
 
             if (hover) {
@@ -903,11 +918,11 @@ public class GuiWorldMap extends GuiScreen {
     private boolean handleLayerToolbarClick(int mouseX, int mouseY) {
         List<IGtnhLayerBridge.LayerButtonInfo> buttons = gtnhBridge.getLayerButtons();
         if (buttons.isEmpty()) return false;
-        int btnSize = 20;
-        int gap = 3;
-        int startX = 8;
+        int btnSize = NAV_BTN_SIZE;
+        int gap = NAV_BTN_GAP;
+        int startX = 10;
         int totalH = buttons.size() * (btnSize + gap);
-        int startY = this.height - 10 - totalH;
+        int startY = this.height - 14 - totalH;
 
         for (int i = 0; i < buttons.size(); i++) {
             int by = startY + i * (btnSize + gap);

@@ -96,6 +96,7 @@ public class ClientEventHandler {
 
         // Parse shared JourneyMap / Xaero waypoints from teammates in chat
         String raw = event.message.getUnformattedText();
+        if (raw.startsWith("[Saifun's Map]")) return;
         Waypoint shared = WaypointManager.tryParseChatWaypoint(raw, mc.theWorld.provider.dimensionId);
         if (shared != null && waypointManager.addIfNotDuplicate(shared)) {
             waypointManager.save();
@@ -106,7 +107,7 @@ public class ClientEventHandler {
     @SubscribeEvent
     public void onKeyInput(InputEvent.KeyInputEvent event) {
         Minecraft mc = Minecraft.getMinecraft();
-        if (mc.currentScreen != null) return;
+        if (mc.currentScreen != null || mc.theWorld == null || mc.thePlayer == null) return;
 
         MapConfig cfg = MapConfig.get();
 

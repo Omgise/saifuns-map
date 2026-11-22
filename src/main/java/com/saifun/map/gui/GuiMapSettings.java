@@ -39,9 +39,19 @@ public class GuiMapSettings extends GuiScreen {
         }
     }
 
+    private final GuiScreen parent;
     private Tab activeTab = Tab.MINIMAP;
     private final List<OptionEntry> currentOptions = new ArrayList<>();
     private boolean confirmClearMap = false;
+    private boolean confirmResetDefaults = false;
+
+    public GuiMapSettings() {
+        this(null);
+    }
+
+    public GuiMapSettings(GuiScreen parent) {
+        this.parent = parent;
+    }
 
     @Override
     public void initGui() {
@@ -81,8 +91,14 @@ public class GuiMapSettings extends GuiScreen {
             this.buttonList.add(new ModernButton(200 + i, bx, by, colW, 19, opt.label + ": " + opt.valueSupplier.get()));
         }
 
-        // Done button
-        this.buttonList.add(new ModernButton(999, panelX + panelW / 2 - 64, panelY + 206, 128, 20, "Done & Save").setAccent(true));
+        // Footer buttons: Reset Defaults + Done & Save
+        this.buttonList.add(new ModernButton(
+            998, panelX + 4, panelY + 206, 140, 20,
+            confirmResetDefaults ? "Confirm Reset?" : "Reset Defaults"
+        ));
+        this.buttonList.add(new ModernButton(
+            999, panelX + panelW - 144, panelY + 206, 140, 20, "Done & Save"
+        ).setAccent(true));
     }
 
     private void populateOptions() {
@@ -222,7 +238,25 @@ public class GuiMapSettings extends GuiScreen {
     protected void actionPerformed(GuiButton button) {
         if (button.id == 999) {
             MapConfig.save();
-            this.mc.displayGuiScreen(null);
+            this.mc.displayGuiScreen(parent);
+            return;
+        }
+        if (button.id == 998) {
+            if (!confirmResetDefaults) {
+                confirmResetDefaults = true;
+                rebuildButtons();
+                return;
+            }
+            confirmResetDefaults = false;
+            confirmClearMap = false;
+            MapConfig.resetToDefaults();
+            triggerReshade();
+            if (this.mc != null && this.mc.thePlayer != null) {
+                this.mc.thePlayer.addChatMessage(new ChatComponentText(
+                    "\u00a7b[Saifun's Map]\u00a7r All settings reset to defaults."
+                ));
+            }
+            rebuildButtons();
             return;
         }
         if (button.id >= 100 && button.id < 110) {
@@ -231,6 +265,7 @@ public class GuiMapSettings extends GuiScreen {
             if (idx >= 0 && idx < tabs.length) {
                 this.activeTab = tabs[idx];
                 this.confirmClearMap = false;
+                this.confirmResetDefaults = false;
                 rebuildButtons();
             }
             return;
@@ -238,6 +273,7 @@ public class GuiMapSettings extends GuiScreen {
         if (button.id >= 200) {
             int idx = button.id - 200;
             if (idx >= 0 && idx < currentOptions.size()) {
+                confirmResetDefaults = false;
                 currentOptions.get(idx).onClick.run();
                 MapConfig.save();
                 rebuildButtons();
@@ -260,6 +296,16 @@ public class GuiMapSettings extends GuiScreen {
         drawCenteredString(this.fontRendererObj, "Saifun's Map — Settings", this.width / 2, panelY + 6, 0xFFF8FAFC);
 
         super.drawScreen(mouseX, mouseY, partialTicks);
+    }
+
+    @Override
+    protected void keyTyped(char typedChar, int keyCode) {
+        if (keyCode == org.lwjgl.input.Keyboard.KEY_ESCAPE) {
+            MapConfig.save();
+            this.mc.displayGuiScreen(parent);
+            return;
+        }
+        super.keyTyped(typedChar, keyCode);
     }
 
     @Override

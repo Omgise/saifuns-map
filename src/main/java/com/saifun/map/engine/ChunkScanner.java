@@ -27,7 +27,9 @@ import java.util.Set;
 public class ChunkScanner {
 
     private static final int SCAN_RADIUS_CHUNKS = 9;
-    private static final long RESCAN_INTERVAL_MS = 3500L;
+    private static final long RESCAN_NEAR_MS = 2800L;
+    private static final long RESCAN_FAR_MS = 12000L;
+    private static final ThreadLocal<Random> SLIME_RNG = ThreadLocal.withInitial(Random::new);
 
     private final MapWorldCache worldCache;
     private final Deque<Long> priorityQueue = new ArrayDeque<>();
@@ -82,10 +84,16 @@ public class ChunkScanner {
 
         // Periodically enqueue surrounding chunks for fresh updates
         tickCounter++;
-        if (tickCounter % 8 == 0) {
+        if (tickCounter % 10 == 0) {
             int pcx = MathHelper.floor_double(player.posX) >> 4;
             int pcz = MathHelper.floor_double(player.posZ) >> 4;
             enqueueRadius(pcx, pcz, SCAN_RADIUS_CHUNKS, false);
+        }
+
+        // Prevent unbounded memory growth in long sessions
+        if (lastScanTime.size() > 2048) {
+            long cutoff = System.currentTimeMillis() - 60_000L;
+            lastScanTime.values().removeIf(t -> t < cutoff);
         }
 
         int budget = MapConfig.get().chunksScannedPerTick;
@@ -122,7 +130,8 @@ public class ChunkScanner {
                     long key = packChunk(cx, cz);
                     if (!force) {
                         Long last = lastScanTime.get(key);
-                        if (last != null && now - last < RESCAN_INTERVAL_MS) continue;
+                        long interval = r <= 2 ? RESCAN_NEAR_MS : RESCAN_FAR_MS;
+                        if (last != null && now - last < interval) continue;
                     }
                     if (queuedKeys.add(key)) {
                         priorityQueue.addLast(key);
@@ -198,7 +207,7 @@ public class ChunkScanner {
             for (int lx = 0; lx < 16; lx++) {
                 int wx = baseX + lx;
                 int idx = rowOff + lx;
-                BiomeGenBase biome = world.getBiomeGenForCoords(wx, wz);
+                BiomeGenBase biome = chunk.getBiomeGenForWorldCoords(lx, lz, world.getWorldChunkManager());
 
                 // --- Surface pass ---
                 int y = Math.min(topSeg, Math.max(0, chunk.getHeightValue(lx, lz) + 1));
@@ -295,7 +304,8 @@ public class ChunkScanner {
         if (world == null) return false;
         long seed = world.getSeed();
         if (seed == 0L) return false;
-        Random rnd = new Random(
+        Random rnd = SLIME_RNG.get();
+        rnd.setSeed(
             seed
                 + (long) (chunkX * chunkX * 0x4c1906)
                 + (long) (chunkX * 0x5ac0db)

@@ -246,6 +246,15 @@ public class GuiWaypoints extends GuiScreen {
     }
 
     @Override
+    protected void keyTyped(char typedChar, int keyCode) {
+        if (keyCode == org.lwjgl.input.Keyboard.KEY_ESCAPE) {
+            this.mc.displayGuiScreen(parent);
+            return;
+        }
+        super.keyTyped(typedChar, keyCode);
+    }
+
+    @Override
     public boolean doesGuiPauseGame() {
         return false;
     }

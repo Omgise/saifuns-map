@@ -55,12 +55,14 @@ public class NavigatorBridge implements IGtnhLayerBridge {
     private boolean bootstrapped = false;
 
     // Recache throttling so dragging at 150 FPS NEVER triggers per-frame database rescans!
+    private int lastFullDim = Integer.MIN_VALUE;
     private int lastFullCx = Integer.MIN_VALUE;
     private int lastFullCz = Integer.MIN_VALUE;
     private int lastFullW = -1;
     private int lastFullH = -1;
     private long lastFullRecacheMs = 0L;
 
+    private int lastMiniDim = Integer.MIN_VALUE;
     private int lastMiniPx = Integer.MIN_VALUE;
     private int lastMiniPz = Integer.MIN_VALUE;
     private long lastMiniRecacheMs = 0L;
@@ -286,10 +288,13 @@ public class NavigatorBridge implements IGtnhLayerBridge {
         GL11.glScaled(invScale, invScale, 1.0);
 
         long nowMs = System.currentTimeMillis();
-        boolean movedFar = Math.abs(cX - lastFullCx) >= 24 || Math.abs(cZ - lastFullCz) >= 24
+        int curDim = Minecraft.getMinecraft().theWorld != null ? Minecraft.getMinecraft().theWorld.provider.dimensionId : Integer.MIN_VALUE;
+        boolean dimChanged = curDim != lastFullDim;
+        boolean movedFar = dimChanged || Math.abs(cX - lastFullCx) >= 24 || Math.abs(cZ - lastFullCz) >= 24
             || Math.abs(visibleBlocksW - lastFullW) >= 48 || Math.abs(visibleBlocksH - lastFullH) >= 48;
-        boolean shouldRecache = (movedFar && (nowMs - lastFullRecacheMs >= 80L)) || (nowMs - lastFullRecacheMs >= 350L);
+        boolean shouldRecache = dimChanged || (movedFar && (nowMs - lastFullRecacheMs >= 80L)) || (nowMs - lastFullRecacheMs >= 350L);
         if (shouldRecache) {
+            lastFullDim = curDim;
             lastFullCx = cX;
             lastFullCz = cZ;
             lastFullW = visibleBlocksW;
@@ -363,9 +368,12 @@ public class NavigatorBridge implements IGtnhLayerBridge {
         GL11.glScaled(invScale, invScale, 1.0);
 
         long nowMs = System.currentTimeMillis();
-        boolean miniShouldRecache = Math.abs(pX - lastMiniPx) >= 12 || Math.abs(pZ - lastMiniPz) >= 12
+        int curDim = Minecraft.getMinecraft().theWorld != null ? Minecraft.getMinecraft().theWorld.provider.dimensionId : Integer.MIN_VALUE;
+        boolean dimChanged = curDim != lastMiniDim;
+        boolean miniShouldRecache = dimChanged || Math.abs(pX - lastMiniPx) >= 12 || Math.abs(pZ - lastMiniPz) >= 12
             || (nowMs - lastMiniRecacheMs >= 250L);
         if (miniShouldRecache) {
+            lastMiniDim = curDim;
             lastMiniPx = pX;
             lastMiniPz = pZ;
             lastMiniRecacheMs = nowMs;

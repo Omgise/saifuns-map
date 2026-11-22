@@ -27,6 +27,7 @@ public class MapWorldCache {
     private final File dataRoot;
     private final Map<Long, MapRegion> regions = new ConcurrentHashMap<>();
     private final Set<Long> pendingDiskLoads = ConcurrentHashMap.newKeySet();
+    private final Set<Long> missingDiskRegions = ConcurrentHashMap.newKeySet();
     private final Queue<MapRegion> pendingTextureDeletes = new ConcurrentLinkedQueue<>();
 
     private final ExecutorService workerPool = Executors.newSingleThreadExecutor(r -> {
@@ -85,6 +86,7 @@ public class MapWorldCache {
         List<MapRegion> snapshot = new ArrayList<>(regions.values());
         regions.clear();
         pendingDiskLoads.clear();
+        missingDiskRegions.clear();
 
         for (MapRegion region : snapshot) {
             pendingTextureDeletes.add(region);
@@ -143,6 +145,7 @@ public class MapWorldCache {
         if (raced != null) {
             return raced;
         }
+        missingDiskRegions.remove(key);
 
         if (MapConfig.get().diskCacheEnabled) {
             final String worldSnap = activeWorldId;
@@ -158,7 +161,7 @@ public class MapWorldCache {
     private void requestDiskLoad(int regionX, int regionZ) {
         if (activeWorldId == null || !MapConfig.get().diskCacheEnabled) return;
         long key = packRegionKey(regionX, regionZ);
-        if (regions.containsKey(key) || !pendingDiskLoads.add(key)) return;
+        if (regions.containsKey(key) || missingDiskRegions.contains(key) || !pendingDiskLoads.add(key)) return;
 
         final String worldSnap = activeWorldId;
         final int dimSnap = activeDimension;
@@ -166,13 +169,20 @@ public class MapWorldCache {
 
         ioPool.submit(() -> {
             try {
-                if (!file.exists()) return;
+                if (!file.exists()) {
+                    if (worldSnap.equals(activeWorldId) && dimSnap == activeDimension) {
+                        missingDiskRegions.add(key);
+                    }
+                    return;
+                }
                 if (!worldSnap.equals(activeWorldId) || dimSnap != activeDimension) return;
                 MapRegion loaded = new MapRegion(dimSnap, regionX, regionZ);
                 if (loaded.loadFromDisk(file)) {
                     if (worldSnap.equals(activeWorldId) && dimSnap == activeDimension) {
                         regions.putIfAbsent(key, loaded);
                     }
+                } else if (worldSnap.equals(activeWorldId) && dimSnap == activeDimension) {
+                    missingDiskRegions.add(key);
                 }
             } finally {
                 pendingDiskLoads.remove(key);
@@ -200,6 +210,7 @@ public class MapWorldCache {
         List<MapRegion> snapshot = new ArrayList<>(regions.values());
         regions.clear();
         pendingDiskLoads.clear();
+        missingDiskRegions.clear();
         for (MapRegion region : snapshot) {
             pendingTextureDeletes.add(region);
         }

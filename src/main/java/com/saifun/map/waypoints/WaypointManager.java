@@ -214,7 +214,7 @@ public class WaypointManager {
         boolean deadNow = player.isDead || player.getHealth() <= 0.0f;
         if (deadNow && !wasDeadLastTick && MapConfig.get().autoDeathWaypoints) {
             int dx = MathHelper.floor_double(player.posX);
-            int dy = MathHelper.floor_double(player.posY);
+            int dy = Math.max(0, Math.min(255, MathHelper.floor_double(player.posY)));
             int dz = MathHelper.floor_double(player.posZ);
             int dim = mc.theWorld.provider.dimensionId;
             Waypoint death = new Waypoint("Death (" + dx + ", " + dz + ")", "X", dx, dy, dz, dim, 0xEF4444, Waypoint.Type.DEATH);
