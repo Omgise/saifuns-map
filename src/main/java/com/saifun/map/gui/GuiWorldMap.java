@@ -351,12 +351,16 @@ public class GuiWorldMap extends GuiScreen {
                 velX = 0.0;
                 velZ = 0.0;
                 long now = System.currentTimeMillis();
-                boolean isDoubleClick = (now - lastLeftClickMs < 350L)
-                    && Math.abs(mouseX - lastClickX) < 6
-                    && Math.abs(mouseY - lastClickY) < 6;
-                lastLeftClickMs = now;
-                lastClickX = mouseX;
-                lastClickY = mouseY;
+                boolean isDoubleClick = (now - lastLeftClickMs < 400L)
+                    && Math.abs(mouseX - lastClickX) < 8
+                    && Math.abs(mouseY - lastClickY) < 8;
+                if (isDoubleClick) {
+                    lastLeftClickMs = 0L;
+                } else {
+                    lastLeftClickMs = now;
+                    lastClickX = mouseX;
+                    lastClickY = mouseY;
+                }
 
                 int bx = MathHelper.floor_double(screenToWorldX(mouseX));
                 int bz = MathHelper.floor_double(screenToWorldZ(mouseY));
@@ -644,7 +648,8 @@ public class GuiWorldMap extends GuiScreen {
             );
 
             // Hit-test Navigator layers right AFTER renderFullscreenLayers updated every step's screen bounds!
-            if (!contextMenuOpen && !dragging && !closing) {
+            // Only clear hover once actual map dragging (dragMoved) begins — NOT on mouse-down for clicks/double-clicks!
+            if (!contextMenuOpen && !dragMoved && !closing) {
                 gtnhBridge.onMouseMove(mouseX, mouseY);
             } else {
                 gtnhBridge.onMouseMove(-9999, -9999);
@@ -878,6 +883,8 @@ public class GuiWorldMap extends GuiScreen {
         for (int i = 0; i < wps.size(); i++) {
             Waypoint wp = wps.get(i);
             if (!wp.enabled) continue;
+            // When GTNH overlay focus is active, OreVeinRenderStep already draws its own gold active-waypoint frame
+            if (wp.type == Waypoint.Type.NAVIGATOR && baseOpacity < 0.95f) continue;
             double sx = worldToScreenX(wp.x + 0.5, cxScreen);
             double sy = worldToScreenY(wp.z + 0.5, cyScreen);
             if (sx < -20 || sx > this.width + 20 || sy < -20 || sy > this.height + 20) continue;

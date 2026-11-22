@@ -202,7 +202,10 @@ public class WaypointManager {
     public synchronized void setNavigatorWaypoint(String tagKey, String label, int x, int y, int z, int dimId, int color) {
         ensureLoaded();
         clearNavigatorWaypoints(tagKey);
-        Waypoint wp = new Waypoint(label, "NV", x, y, z, dimId, color, Waypoint.Type.NAVIGATOR);
+        String cleanLabel = (label != null ? label.replaceAll("\u00a7[0-9a-fk-or]", "").trim() : "");
+        if (cleanLabel.isEmpty()) cleanLabel = "Target";
+        int safeColor = (color & 0xFFFFFF) != 0 ? (color & 0xFFFFFF) : 0xFACC15;
+        Waypoint wp = new Waypoint(cleanLabel, null, x, y, z, dimId, safeColor, Waypoint.Type.NAVIGATOR);
         wp.id = "nav:" + tagKey;
         wp.temporary = true;
         waypoints.add(wp);

@@ -518,10 +518,34 @@ public class NavigatorBridge implements IGtnhLayerBridge {
     @Override
     public boolean onMapClick(boolean isDoubleClick, int mouseX, int mouseY, int blockX, int blockZ) {
         if (!isAvailable() || !MapConfig.get().showNavigatorOnWorldMap) return false;
+        // Always refresh hover state at exact click coordinates first (never rely on stale pre-click hover!)
+        onMouseMove(mouseX, mouseY);
+
         int sf = getGuiScaleFactor();
         int rawX = mouseX * sf;
         int rawY = mouseY * sf;
         List<UniversalLayerRenderer> active = collectActiveRenderersSorted();
+
+        // Pass 1: Layers with a directly hovered interactable step (e.g. Ore Vein, Thaumcraft Node, Claimed Chunk)
+        // take priority over background empty-space click actions (like claiming an empty chunk).
+        if (hoveredStepField != null) {
+            for (int i = active.size() - 1; i >= 0; i--) {
+                UniversalLayerRenderer ulr = active.get(i);
+                if (ulr instanceof UniversalInteractableRenderer) {
+                    try {
+                        Object hovered = hoveredStepField.get(ulr);
+                        if (hovered != null && ((InteractableLayer) ulr).onMapClick(isDoubleClick, rawX, rawY, blockX, blockZ)) {
+                            LayerManager lm = findManagerFor(ulr);
+                            if (lm != null) lm.forceRefresh();
+                            lastFullRecacheMs = 0L;
+                            return true;
+                        }
+                    } catch (Throwable ignored) {}
+                }
+            }
+        }
+
+        // Pass 2: Background / outside-step click actions (e.g. ServerUtilities double-click empty chunk to claim!)
         for (int i = active.size() - 1; i >= 0; i--) {
             UniversalLayerRenderer ulr = active.get(i);
             if (ulr instanceof InteractableLayer) {
