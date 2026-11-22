@@ -1,18 +1,28 @@
 package com.saifun.map;
 
+import com.saifun.map.compat.IGtnhLayerBridge;
 import com.saifun.map.config.MapConfig;
 import com.saifun.map.engine.ChunkScanner;
 import com.saifun.map.engine.MapWorldCache;
 import com.saifun.map.gui.GuiMapSettings;
+import com.saifun.map.gui.GuiWaypointEdit;
+import com.saifun.map.gui.GuiWaypoints;
+import com.saifun.map.gui.GuiWorldMap;
 import com.saifun.map.input.MapKeybinds;
 import com.saifun.map.radar.EntityRadarManager;
 import com.saifun.map.render.MinimapRenderer;
+import com.saifun.map.waypoints.Waypoint;
+import com.saifun.map.waypoints.WaypointManager;
+import com.saifun.map.waypoints.WaypointWorldRenderer;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.InputEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 import net.minecraft.client.Minecraft;
 import net.minecraft.util.ChatComponentText;
+import net.minecraft.util.MathHelper;
+import net.minecraftforge.client.event.ClientChatReceivedEvent;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
+import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.event.world.ChunkEvent;
 import net.minecraftforge.event.world.WorldEvent;
 
@@ -21,17 +31,26 @@ public class ClientEventHandler {
     private final MapWorldCache worldCache;
     private final ChunkScanner chunkScanner;
     private final EntityRadarManager radarManager;
+    private final WaypointManager waypointManager;
+    private final WaypointWorldRenderer waypointWorldRenderer;
+    private final IGtnhLayerBridge gtnhBridge;
     private final MinimapRenderer minimapRenderer;
 
     public ClientEventHandler(
         MapWorldCache worldCache,
         ChunkScanner chunkScanner,
         EntityRadarManager radarManager,
+        WaypointManager waypointManager,
+        WaypointWorldRenderer waypointWorldRenderer,
+        IGtnhLayerBridge gtnhBridge,
         MinimapRenderer minimapRenderer
     ) {
         this.worldCache = worldCache;
         this.chunkScanner = chunkScanner;
         this.radarManager = radarManager;
+        this.waypointManager = waypointManager;
+        this.waypointWorldRenderer = waypointWorldRenderer;
+        this.gtnhBridge = gtnhBridge;
         this.minimapRenderer = minimapRenderer;
     }
 
@@ -43,9 +62,15 @@ public class ClientEventHandler {
     }
 
     @SubscribeEvent
+    public void onRenderWorldLast(RenderWorldLastEvent event) {
+        waypointWorldRenderer.renderInWorld(event.partialTicks);
+    }
+
+    @SubscribeEvent
     public void onClientTick(TickEvent.ClientTickEvent event) {
         if (event.phase != TickEvent.Phase.END) return;
         chunkScanner.onClientTick();
+        waypointManager.onClientTick();
     }
 
     @SubscribeEvent
@@ -60,6 +85,22 @@ public class ClientEventHandler {
         worldCache.flushAndClear();
         chunkScanner.reset();
         radarManager.clear();
+        waypointManager.clearSession();
+    }
+
+    @SubscribeEvent
+    public void onChatReceived(ClientChatReceivedEvent event) {
+        if (event.message == null) return;
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc.theWorld == null || mc.thePlayer == null) return;
+
+        // Parse shared JourneyMap / Xaero waypoints from teammates in chat
+        String raw = event.message.getUnformattedText();
+        Waypoint shared = WaypointManager.tryParseChatWaypoint(raw, mc.theWorld.provider.dimensionId);
+        if (shared != null && waypointManager.addIfNotDuplicate(shared)) {
+            waypointManager.save();
+            notifyPlayer("Added shared waypoint '\u00a7e" + shared.name + "\u00a7r' (" + shared.x + ", " + shared.y + ", " + shared.z + ")");
+        }
     }
 
     @SubscribeEvent
@@ -69,7 +110,23 @@ public class ClientEventHandler {
 
         MapConfig cfg = MapConfig.get();
 
-        if (MapKeybinds.KEY_SETTINGS.isPressed()) {
+        if (MapKeybinds.KEY_WORLD_MAP.isPressed()) {
+            mc.displayGuiScreen(new GuiWorldMap(worldCache, chunkScanner, radarManager, waypointManager, gtnhBridge));
+        } else if (MapKeybinds.KEY_WAYPOINTS_MENU.isPressed()) {
+            mc.displayGuiScreen(new GuiWaypoints(null, waypointManager));
+        } else if (MapKeybinds.KEY_ADD_WAYPOINT.isPressed()) {
+            if (mc.thePlayer != null && mc.theWorld != null) {
+                mc.displayGuiScreen(new GuiWaypointEdit(
+                    null,
+                    waypointManager,
+                    null,
+                    MathHelper.floor_double(mc.thePlayer.posX),
+                    MathHelper.floor_double(mc.thePlayer.posY),
+                    MathHelper.floor_double(mc.thePlayer.posZ),
+                    mc.theWorld.provider.dimensionId
+                ));
+            }
+        } else if (MapKeybinds.KEY_SETTINGS.isPressed()) {
             mc.displayGuiScreen(new GuiMapSettings());
         } else if (MapKeybinds.KEY_TOGGLE_MINIMAP.isPressed()) {
             cfg.minimapEnabled = !cfg.minimapEnabled;
@@ -96,8 +153,6 @@ public class ClientEventHandler {
         } else if (MapKeybinds.KEY_TOGGLE_SHAPE.isPressed()) {
             cfg.circularMinimap = !cfg.circularMinimap;
             MapConfig.save();
-        } else if (MapKeybinds.KEY_WORLD_MAP.isPressed()) {
-            notifyPlayer("World Map GUI is coming in Stage 2!");
         }
     }
 

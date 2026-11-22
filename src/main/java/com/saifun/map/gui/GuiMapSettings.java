@@ -155,6 +155,12 @@ public class GuiMapSettings extends GuiScreen {
                 addBool("Vein Center Tint", () -> cfg.highlightOreVeinCenter, () -> cfg.highlightOreVeinCenter = !cfg.highlightOreVeinCenter);
                 addBool("Chunk Grid (16x16)", () -> cfg.showChunkGrid, () -> cfg.showChunkGrid = !cfg.showChunkGrid);
                 addBool("Slime Chunks", () -> cfg.showSlimeChunks, () -> cfg.showSlimeChunks = !cfg.showSlimeChunks);
+                addBool("GTNH Navigator API", () -> cfg.navigatorEnabled, () -> cfg.navigatorEnabled = !cfg.navigatorEnabled);
+                addBool("Navigator on Minimap", () -> cfg.showNavigatorOnMinimap, () -> cfg.showNavigatorOnMinimap = !cfg.showNavigatorOnMinimap);
+                addBool("Navigator on WorldMap", () -> cfg.showNavigatorOnWorldMap, () -> cfg.showNavigatorOnWorldMap = !cfg.showNavigatorOnWorldMap);
+                addBool("3D World Waypoints", () -> cfg.showWaypointsInWorld, () -> cfg.showWaypointsInWorld = !cfg.showWaypointsInWorld);
+                addBool("Waypoint Beams", () -> cfg.showWaypointBeam, () -> cfg.showWaypointBeam = !cfg.showWaypointBeam);
+                addBool("Auto Death Points", () -> cfg.autoDeathWaypoints, () -> cfg.autoDeathWaypoints = !cfg.autoDeathWaypoints);
                 break;
         }
     }

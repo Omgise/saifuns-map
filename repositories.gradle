@@ -1,5 +1,8 @@
-// Add any additional repositories for your dependencies here.
+// Additional repositories for optional GTNH compile-time integrations.
 
 repositories {
-
+    maven {
+        name = "GTNH Maven"
+        url = "https://nexus.gtnewhorizons.com/repository/public/"
+    }
 }

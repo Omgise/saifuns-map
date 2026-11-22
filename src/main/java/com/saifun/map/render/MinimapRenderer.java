@@ -1,5 +1,6 @@
 package com.saifun.map.render;
 
+import com.saifun.map.compat.IGtnhLayerBridge;
 import com.saifun.map.config.MapConfig;
 import com.saifun.map.engine.ChunkScanner;
 import com.saifun.map.engine.MapRegion;
@@ -7,6 +8,8 @@ import com.saifun.map.engine.MapWorldCache;
 import com.saifun.map.radar.EntityIconRenderer;
 import com.saifun.map.radar.EntityRadarManager;
 import com.saifun.map.radar.RadarEntity;
+import com.saifun.map.waypoints.Waypoint;
+import com.saifun.map.waypoints.WaypointManager;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityClientPlayerMP;
 import net.minecraft.client.gui.FontRenderer;
@@ -32,17 +35,23 @@ public class MinimapRenderer {
     private final MapWorldCache worldCache;
     private final ChunkScanner chunkScanner;
     private final EntityRadarManager radarManager;
+    private final WaypointManager waypointManager;
+    private final IGtnhLayerBridge gtnhBridge;
 
     private float smoothZoom = 2.0f;
 
     public MinimapRenderer(
         MapWorldCache worldCache,
         ChunkScanner chunkScanner,
-        EntityRadarManager radarManager
+        EntityRadarManager radarManager,
+        WaypointManager waypointManager,
+        IGtnhLayerBridge gtnhBridge
     ) {
         this.worldCache = worldCache;
         this.chunkScanner = chunkScanner;
         this.radarManager = radarManager;
+        this.waypointManager = waypointManager;
+        this.gtnhBridge = gtnhBridge;
     }
 
     public void render(float partialTicks) {
@@ -159,9 +168,17 @@ public class MinimapRenderer {
             renderRegions(playerX, playerZ, worldRadiusBlocks, pixelsPerBlock, caveMode, cfg.minimapOpacity);
             renderOverlays(world, playerX, playerZ, worldRadiusBlocks, pixelsPerBlock);
 
+            // 2b. GTNH Navigator layers (VisualProspecting Ore Veins, Fluids, Nodes, ServerUtilities Claims)
+            if (gtnhBridge != null && cfg.showNavigatorOnMinimap) {
+                GL11.glPushMatrix();
+                GL11.glTranslated(0.0, 0.0, MASK_Z);
+                gtnhBridge.renderMinimapLayers(playerX, playerZ, pixelsPerBlock, mapRotationDeg, worldRadiusBlocks);
+                GL11.glPopMatrix();
+            }
+
             GL11.glPopMatrix();
 
-            // End depth/scissor mask before crisp border, compass, entities & info bar
+            // End depth/scissor mask before crisp border, compass, entities, waypoints & info bar
             GL11.glDisable(GL11.GL_DEPTH_TEST);
             GL11.glDepthMask(true);
             GL11.glDepthFunc(GL11.GL_LEQUAL);
@@ -169,6 +186,9 @@ public class MinimapRenderer {
 
             // 3. Entity Radar (clipped cleanly to map radius so icons stay crisp & un-rotated!)
             renderEntities(playerX, playerY, playerZ, centerX, centerY, half, mapRotationDeg, pixelsPerBlock, partialTicks);
+
+            // 3b. Waypoints on Minimap (clamped to rim when outside radius, like Xaero!)
+            renderMinimapWaypoints(world.provider.dimensionId, playerX, playerZ, centerX, centerY, half, mapRotationDeg, pixelsPerBlock);
 
             // 4. Center Player Chevron Arrow
             float arrowAngle = cfg.lockNorth ? (playerYaw - 180.0f) : 0.0f;
@@ -370,6 +390,74 @@ public class MinimapRenderer {
             }
 
             EntityIconRenderer.renderEntity(re, centerX + rx, centerY + ry, playerY, 1.0f);
+        }
+    }
+
+    private void renderMinimapWaypoints(
+        int dimId,
+        double playerX,
+        double playerZ,
+        double centerX,
+        double centerY,
+        int half,
+        float mapRotationDeg,
+        double pixelsPerBlock
+    ) {
+        MapConfig cfg = MapConfig.get();
+        if (!cfg.showWaypointsOnMinimap || waypointManager == null) return;
+
+        List<Waypoint> wps = waypointManager.getWaypointsForDimension(dimId);
+        if (wps.isEmpty()) return;
+
+        FontRenderer fr = Minecraft.getMinecraft().fontRenderer;
+        double rad = Math.toRadians(mapRotationDeg);
+        double cos = Math.cos(rad);
+        double sin = Math.sin(rad);
+        double clipLimit = half - 4.0;
+
+        for (int i = 0; i < wps.size(); i++) {
+            Waypoint wp = wps.get(i);
+            if (!wp.enabled) continue;
+
+            double dx = (wp.x + 0.5 - playerX) * pixelsPerBlock;
+            double dz = (wp.z + 0.5 - playerZ) * pixelsPerBlock;
+            double rx = dx * cos - dz * sin;
+            double ry = dx * sin + dz * cos;
+
+            boolean clamped = false;
+            if (cfg.circularMinimap) {
+                double distSq = rx * rx + ry * ry;
+                if (distSq > clipLimit * clipLimit) {
+                    double dist = Math.sqrt(distSq);
+                    rx = (rx / dist) * clipLimit;
+                    ry = (ry / dist) * clipLimit;
+                    clamped = true;
+                }
+            } else {
+                if (Math.abs(rx) > clipLimit || Math.abs(ry) > clipLimit) {
+                    double maxAbs = Math.max(Math.abs(rx), Math.abs(ry));
+                    rx = (rx / maxAbs) * clipLimit;
+                    ry = (ry / maxAbs) * clipLimit;
+                    clamped = true;
+                }
+            }
+
+            double sx = centerX + rx;
+            double sy = centerY + ry;
+            float badgeScale = clamped ? 0.62f : 0.72f;
+
+            GL11.glPushMatrix();
+            GL11.glTranslated(sx, sy, 0.0);
+            GL11.glScalef(badgeScale, badgeScale, 1.0f);
+            GL11.glDisable(GL11.GL_TEXTURE_2D);
+            drawRect(-6.5, -6.5, 6.5, 6.5, 0.0, 0xDD0D1117);
+            drawRect(-5.2, -5.2, 5.2, 5.2, 0.0, wp.getArgb(clamped ? 200 : 245));
+            GL11.glEnable(GL11.GL_TEXTURE_2D);
+            if (fr != null) {
+                String init = wp.initials != null ? wp.initials : "W";
+                fr.drawStringWithShadow(init, -fr.getStringWidth(init) / 2, -4, 0xFFFFFFFF);
+            }
+            GL11.glPopMatrix();
         }
     }
 

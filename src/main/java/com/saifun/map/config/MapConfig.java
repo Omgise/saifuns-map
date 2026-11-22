@@ -85,6 +85,20 @@ public class MapConfig {
     public boolean highlightOreVeinCenter = true;
     public boolean showSlimeChunks = false;
 
+    // --- Waypoints & 3D World Markers ---
+    public boolean showWaypointsOnMinimap = true;
+    public boolean showWaypointsOnWorldMap = true;
+    public boolean showWaypointsInWorld = true;
+    public boolean showWaypointBeam = false;
+    public boolean autoDeathWaypoints = true;
+    public int maxWaypointRenderDistance = 10000;
+    public float waypointScale = 1.0f;
+
+    // --- GTNH Navigator Bridge (VisualProspecting / ServerUtilities) ---
+    public boolean navigatorEnabled = true;
+    public boolean showNavigatorOnMinimap = true;
+    public boolean showNavigatorOnWorldMap = true;
+
     // --- Entity Radar (Zero FairPlay restrictions!) ---
     public boolean radarEnabled = true;
     public RadarIconStyle radarIconStyle = RadarIconStyle.HEADS;
