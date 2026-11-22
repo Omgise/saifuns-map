@@ -41,10 +41,10 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Compact, crisp modern Xaero-style entity icon renderer.
+ * Compact, crisp modern entity icon renderer.
  * Supports:
- * - Compact player & mob heads (default, ~2x tighter than v1.0 so icons never pile up),
- * - Sleek Xaero colored diamonds (matching modern Xaero screenshot #8),
+ * - Compact player & mob heads (default, crisp silhouette outline so icons never pile up),
+ * - Sleek colored diamonds,
  * - Clean colored dots,
  * - Resource-pack / GTNH 2D entity icon overrides + dynamic Render texture head UV fallback.
  */
@@ -144,7 +144,7 @@ public final class EntityIconRenderer {
         double dy = re.y - playerY;
         float alpha = computeVerticalAlpha(dy, re.category) * alphaMultiplier;
 
-        // Compact Xaero proportions (~half of v1.0): clean, crisp, non-crowding!
+        // Compact crisp icon proportions: clean and non-crowding
         float basePx = re.category == EntityCategory.PLAYER ? 6.8f : 4.8f;
         float size = basePx * re.category.defaultScale * cfg.radarIconScale * scaleMultiplier;
         float half = size * 0.5f;

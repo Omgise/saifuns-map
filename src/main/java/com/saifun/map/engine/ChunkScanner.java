@@ -284,7 +284,7 @@ public class ChunkScanner {
                 } else if (snowCovered && wDepth == 0) {
                     solidRgb = 0xEDF4FA;
                 } else if (flatAccentRgb != 0 && wDepth == 0) {
-                    // Subtle flower/flora fleck on top of smooth grass (like modern Xaero!)
+                    // Subtle flower/flora fleck on top of smooth grass
                     solidRgb = BlockColorResolver.blendColor(solidRgb, flatAccentRgb, 0.58f);
                 }
 

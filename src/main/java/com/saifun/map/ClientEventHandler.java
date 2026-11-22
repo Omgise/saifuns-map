@@ -12,6 +12,7 @@ import com.saifun.map.gui.GuiWorldMap;
 import com.saifun.map.input.MapKeybinds;
 import com.saifun.map.radar.EntityRadarManager;
 import com.saifun.map.render.MinimapRenderer;
+import com.saifun.map.util.Lang;
 import com.saifun.map.waypoints.Waypoint;
 import com.saifun.map.waypoints.WaypointManager;
 import com.saifun.map.waypoints.WaypointWorldRenderer;
@@ -110,7 +111,7 @@ public class ClientEventHandler {
         Minecraft mc = Minecraft.getMinecraft();
         if (mc.theWorld == null || mc.thePlayer == null) return;
 
-        // Parse plain-text shared JourneyMap / Xaero waypoints from chat and present clickable [Save] [Edit] [Beacon] buttons!
+        // Parse plain-text shared JourneyMap waypoints from chat and present clickable [Save] [Edit] [Beacon] buttons!
         String raw = event.message.getUnformattedText();
         if (raw.startsWith("[Saifun's Map]")) return;
         Waypoint shared = WaypointManager.tryParseChatWaypoint(raw, mc.theWorld.provider.dimensionId);
@@ -170,15 +171,18 @@ public class ClientEventHandler {
             if (cfg.caveMode == MapConfig.CaveMode.ON) {
                 chunkScanner.triggerCaveRescan();
             }
-            notifyPlayer("Cave Mode: " + cfg.caveMode.name());
+            String modeKey = cfg.caveMode == MapConfig.CaveMode.ON
+                ? "saifunsmap.settings.cave_mode.on"
+                : (cfg.caveMode == MapConfig.CaveMode.OFF ? "saifunsmap.settings.cave_mode.off" : "saifunsmap.settings.cave_mode.auto");
+            notifyPlayer(Lang.tr("saifunsmap.chat.cave_mode", Lang.tr(modeKey)));
         } else if (MapKeybinds.KEY_TOGGLE_ORE_GRID.isPressed()) {
             cfg.showOreVeinGrid = !cfg.showOreVeinGrid;
             MapConfig.save();
-            notifyPlayer("GT Ore Vein Grid: " + (cfg.showOreVeinGrid ? "ON" : "OFF"));
+            notifyPlayer(Lang.tr("saifunsmap.chat.ore_grid", Lang.onOff(cfg.showOreVeinGrid)));
         } else if (MapKeybinds.KEY_TOGGLE_CHUNK_GRID.isPressed()) {
             cfg.showChunkGrid = !cfg.showChunkGrid;
             MapConfig.save();
-            notifyPlayer("Chunk Grid: " + (cfg.showChunkGrid ? "ON" : "OFF"));
+            notifyPlayer(Lang.tr("saifunsmap.chat.chunk_grid", Lang.onOff(cfg.showChunkGrid)));
         } else if (MapKeybinds.KEY_TOGGLE_SHAPE.isPressed()) {
             cfg.circularMinimap = !cfg.circularMinimap;
             MapConfig.save();

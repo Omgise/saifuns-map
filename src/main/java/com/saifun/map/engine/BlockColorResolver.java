@@ -23,7 +23,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Modern Xaero-calibrated block & biome color resolver for Minecraft 1.7.10 + GTNH mods.
+ * Calibrated block & biome color resolver for Minecraft 1.7.10 + GTNH mods.
  * - Normalizes grayscale biome-tinted textures (grass, leaves) so meadows look natural & lush, not neon/dark.
  * - Gives rivers/oceans rich sapphire-blue hues instead of muddy grey.
  * - Distinguishes flat floral/grass overlays so flowers appear as charming dots without adding fake height noise.
@@ -103,7 +103,7 @@ public final class BlockColorResolver {
     }
 
     private static int computeBaseColor(Block block, int meta) {
-        // Rich modern Xaero water base
+        // Rich natural water base
         if (block.getMaterial() == Material.water) {
             return 0x3866D6;
         }
@@ -117,7 +117,7 @@ public final class BlockColorResolver {
             return 0x8EBDF5;
         }
         // Vanilla grass top & leaves are grayscale masks in 1.7.10; use clean bright neutral luminance
-        // so biome color multiplication produces authentic, smooth Xaero greens!
+        // so biome color multiplication produces authentic, smooth natural greens!
         if (block instanceof BlockGrass) {
             return 0xC8D0C2;
         }
@@ -173,7 +173,7 @@ public final class BlockColorResolver {
     private static int applyBiomeTint(Block block, int meta, int baseRgb, int x, int z, BiomeGenBase biome) {
         if (block instanceof BlockGrass) {
             int grass = biome.getBiomeGrassColor(x, 64, z);
-            // Slightly soften extreme saturation for natural painterly Xaero grass
+            // Slightly soften extreme saturation for natural painterly grass
             int tinted = multiplyColor(baseRgb, grass);
             return blendColor(tinted, 0x7A9A58, 0.14f);
         }

@@ -3,7 +3,7 @@
 	"modList": [{
 		"modid": "${modId}",
 		"name": "${modName}",
-		"description": "Modern Xaero-style Minimap & World Map for GT: New Horizons 1.7.10 with full GTNH Navigator, VisualProspecting, and ServerUtilities integration, high performance, and unrestricted entity radar.",
+		"description": "Fast, minimalist Minimap & Fullscreen World Map for GT: New Horizons 1.7.10 with native GTNH Navigator (VisualProspecting & ServerUtilities), ShareWhereIAm integration, 3D shaded terrain & Cave Mode, and unrestricted entity radar.",
 		"version": "${modVersion}",
 		"mcversion": "${minecraftVersion}",
 		"url": "",

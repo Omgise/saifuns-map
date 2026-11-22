@@ -230,7 +230,7 @@ public class MapRegion {
                                 }
                             }
                         } else {
-                            // 1. Directional 3-neighbor Xaero topographic slope relief (NW sunlit, SE shaded)
+                            // 1. Directional 3-neighbor topographic slope relief (NW sunlit, SE shaded)
                             int slope = (h - hN) * 2 + (h - hW) * 2 + (h - hNW);
                             if (slope > 0) {
                                 float boost = Math.min(0.20f, Math.min(6, slope) * 0.036f);
@@ -293,7 +293,7 @@ public class MapRegion {
                     }
 
                     if (wDepth > 0) {
-                        // Crisp Xaero water gradient: bright turquoise-blue shallows -> rich royal/sapphire deep water
+                        // Crisp water gradient: bright turquoise-blue shallows -> rich royal/sapphire deep water
                         int shallowWater = 0x4580DF;
                         int deepWaterBase = 0x2249A6;
                         float tDepth = Math.min(1.0f, wDepth / 9.0f);

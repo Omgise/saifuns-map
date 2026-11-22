@@ -5,43 +5,111 @@ import com.saifun.map.SaifunsMapMod;
 import com.saifun.map.config.MapConfig;
 import com.saifun.map.engine.BlockColorResolver;
 import com.saifun.map.render.GLDraw;
+import com.saifun.map.util.Lang;
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.util.ChatComponentText;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.DoubleConsumer;
+import java.util.function.DoubleFunction;
+import java.util.function.Supplier;
 
 /**
- * Modern translucent Xaero-style settings GUI with tabbed categories and live HUD preview.
+ * Modern translucent settings GUI with smooth interactive sliders, tabbed categories,
+ * full RU/EN localization, and real-time minimap HUD preview behind the panel.
  */
 public class GuiMapSettings extends GuiScreen {
 
     private enum Tab {
-        MINIMAP("Minimap"),
-        ENGINE("Engine & Cave"),
-        RADAR("Entity Radar"),
-        OVERLAYS("GTNH Overlays");
+        MINIMAP("saifunsmap.settings.tab.minimap"),
+        ENGINE("saifunsmap.settings.tab.engine"),
+        RADAR("saifunsmap.settings.tab.radar"),
+        OVERLAYS("saifunsmap.settings.tab.overlays");
 
-        final String title;
-        Tab(String title) { this.title = title; }
+        final String langKey;
+        Tab(String langKey) { this.langKey = langKey; }
     }
 
-    private static class OptionEntry {
-        final String label;
-        final java.util.function.Supplier<String> valueSupplier;
-        final Runnable onClick;
+    private interface SettingItem {
+        GuiButton build(int id, int x, int y, int w, int h);
+        default void onClick() {}
+    }
 
-        OptionEntry(String label, java.util.function.Supplier<String> valueSupplier, Runnable onClick) {
-            this.label = label;
+    private static final class ToggleItem implements SettingItem {
+        final String labelKey;
+        final Supplier<String> valueSupplier;
+        final Runnable onClick;
+        final boolean danger;
+
+        ToggleItem(String labelKey, Supplier<String> valueSupplier, Runnable onClick, boolean danger) {
+            this.labelKey = labelKey;
             this.valueSupplier = valueSupplier;
             this.onClick = onClick;
+            this.danger = danger;
+        }
+
+        @Override
+        public GuiButton build(int id, int x, int y, int w, int h) {
+            String val = valueSupplier != null ? valueSupplier.get() : null;
+            String text = (val != null && !val.isEmpty())
+                ? (Lang.tr(labelKey) + ": " + val)
+                : Lang.tr(labelKey);
+            ModernButton btn = new ModernButton(id, x, y, w, h, text);
+            if (danger) btn.setAccent(true);
+            return btn;
+        }
+
+        @Override
+        public void onClick() {
+            if (onClick != null) onClick.run();
+        }
+    }
+
+    private static final class SliderItem implements SettingItem {
+        final String labelKey;
+        final double min, max, step;
+        final Supplier<Double> getter;
+        final DoubleFunction<String> formatter;
+        final DoubleConsumer onChange;
+        final Runnable onRelease;
+
+        SliderItem(
+            String labelKey,
+            double min, double max, double step,
+            Supplier<Double> getter,
+            DoubleFunction<String> formatter,
+            DoubleConsumer onChange,
+            Runnable onRelease
+        ) {
+            this.labelKey = labelKey;
+            this.min = min;
+            this.max = max;
+            this.step = step;
+            this.getter = getter;
+            this.formatter = formatter;
+            this.onChange = onChange;
+            this.onRelease = onRelease;
+        }
+
+        @Override
+        public GuiButton build(int id, int x, int y, int w, int h) {
+            return new ModernSlider(
+                id, x, y, w, h,
+                Lang.tr(labelKey),
+                min, max, step,
+                getter.get(),
+                formatter,
+                onChange,
+                onRelease
+            );
         }
     }
 
     private final GuiScreen parent;
     private Tab activeTab = Tab.MINIMAP;
-    private final List<OptionEntry> currentOptions = new ArrayList<>();
+    private final List<SettingItem> currentItems = new ArrayList<>();
     private boolean confirmClearMap = false;
     private boolean confirmResetDefaults = false;
 
@@ -58,242 +126,371 @@ public class GuiMapSettings extends GuiScreen {
         rebuildButtons();
     }
 
+    private int computePanelX(int panelW) {
+        int centered = (this.width - panelW) / 2;
+        // On narrower screens, nudge the panel slightly away from the minimap corner so live preview stays unobstructed!
+        MapConfig cfg = MapConfig.get();
+        if (activeTab == Tab.MINIMAP && cfg.minimapEnabled) {
+            int clearMargin = cfg.minimapSize + cfg.offsetX + 18;
+            if (cfg.minimapCorner == MapConfig.Corner.TOP_RIGHT || cfg.minimapCorner == MapConfig.Corner.BOTTOM_RIGHT) {
+                if (centered + panelW > this.width - clearMargin) {
+                    return Math.max(8, this.width - clearMargin - panelW);
+                }
+            } else {
+                if (centered < clearMargin) {
+                    return Math.min(this.width - panelW - 8, clearMargin);
+                }
+            }
+        }
+        return centered;
+    }
+
     private void rebuildButtons() {
         this.buttonList.clear();
-        this.currentOptions.clear();
+        this.currentItems.clear();
 
-        int panelW = 340;
-        int panelX = (this.width - panelW) / 2;
-        int panelY = Math.max(24, (this.height - 230) / 2);
+        int panelW = 356;
+        int panelX = computePanelX(panelW);
+        int panelY = Math.max(18, (this.height - 248) / 2);
 
-        // Top tab bar (sleek ModernButtons)
         Tab[] tabs = Tab.values();
         int tabW = panelW / tabs.length;
         for (int i = 0; i < tabs.length; i++) {
             boolean isCurrent = tabs[i] == activeTab;
-            ModernButton tb = new ModernButton(100 + i, panelX + i * tabW, panelY + 24, tabW - 2, 18, tabs[i].title)
+            ModernButton tb = new ModernButton(100 + i, panelX + i * tabW, panelY + 24, tabW - 2, 18, Lang.tr(tabs[i].langKey))
                 .setSelected(isCurrent);
             tb.enabled = !isCurrent;
             this.buttonList.add(tb);
         }
 
-        populateOptions();
+        populateItems();
 
         int cols = 2;
         int colW = (panelW - 14) / cols;
         int startY = panelY + 50;
-        for (int i = 0; i < currentOptions.size(); i++) {
-            OptionEntry opt = currentOptions.get(i);
+        for (int i = 0; i < currentItems.size(); i++) {
+            SettingItem item = currentItems.get(i);
             int col = i % cols;
             int row = i / cols;
             int bx = panelX + 4 + col * (colW + 6);
             int by = startY + row * 23;
-            this.buttonList.add(new ModernButton(200 + i, bx, by, colW, 19, opt.label + ": " + opt.valueSupplier.get()));
+            this.buttonList.add(item.build(200 + i, bx, by, colW, 19));
         }
 
         // Footer buttons: Reset Defaults + Done & Save
-        this.buttonList.add(new ModernButton(
-            998, panelX + 4, panelY + 206, 140, 20,
-            confirmResetDefaults ? "Confirm Reset?" : "Reset Defaults"
-        ));
-        this.buttonList.add(new ModernButton(
-            999, panelX + panelW - 144, panelY + 206, 140, 20, "Done & Save"
-        ).setAccent(true));
+        String resetLabel = confirmResetDefaults
+            ? Lang.tr("saifunsmap.settings.reset_confirm")
+            : Lang.tr("saifunsmap.settings.reset_defaults");
+        this.buttonList.add(new ModernButton(98, panelX + 4, panelY + 222, 134, 20, resetLabel));
+        this.buttonList.add(new ModernButton(99, panelX + panelW - 134, panelY + 222, 130, 20, Lang.tr("saifunsmap.common.done")).setAccent(true));
     }
 
-    private void populateOptions() {
+    private void populateItems() {
         MapConfig cfg = MapConfig.get();
+
         switch (activeTab) {
             case MINIMAP:
-                addBool("Minimap HUD", () -> cfg.minimapEnabled, () -> cfg.minimapEnabled = !cfg.minimapEnabled);
-                addOption("Shape", () -> cfg.circularMinimap ? "Circle" : "Square", () -> cfg.circularMinimap = !cfg.circularMinimap);
-                addOption("Corner", () -> cfg.minimapCorner.name(), () -> {
+                addToggle("saifunsmap.settings.minimap_enabled", () -> Lang.onOff(cfg.minimapEnabled),
+                    () -> cfg.minimapEnabled = !cfg.minimapEnabled);
+                addToggle("saifunsmap.settings.shape",
+                    () -> Lang.tr(cfg.circularMinimap ? "saifunsmap.settings.shape.circle" : "saifunsmap.settings.shape.square"),
+                    () -> cfg.circularMinimap = !cfg.circularMinimap);
+
+                addSlider("saifunsmap.settings.size", 56, 220, 4,
+                    () -> (double) cfg.minimapSize,
+                    v -> ((int) Math.round(v)) + "px",
+                    v -> cfg.minimapSize = (int) Math.round(v),
+                    MapConfig::save);
+                addSlider("saifunsmap.settings.zoom", 0.5, 4.0, 0.05,
+                    () -> (double) cfg.minimapZoom,
+                    v -> String.format("%.2fx", v),
+                    v -> cfg.minimapZoom = (float) v,
+                    MapConfig::save);
+
+                addToggle("saifunsmap.settings.corner", () -> formatCorner(cfg.minimapCorner), () -> {
                     MapConfig.Corner[] vals = MapConfig.Corner.values();
                     cfg.minimapCorner = vals[(cfg.minimapCorner.ordinal() + 1) % vals.length];
                 });
-                addOption("Size", () -> cfg.minimapSize + "px", () -> {
-                    int[] sizes = { 64, 80, 96, 112, 128, 148, 176, 208 };
-                    int next = sizes[0];
-                    for (int s : sizes) {
-                        if (s > cfg.minimapSize) {
-                            next = s;
-                            break;
-                        }
-                    }
-                    cfg.minimapSize = next;
-                });
-                addOption("Zoom", () -> String.format("%.1fx", cfg.minimapZoom), () -> {
-                    cfg.minimapZoom = cfg.minimapZoom >= 6.0f ? 1.0f : cfg.minimapZoom + 0.5f;
-                });
-                addBool("Lock North", () -> cfg.lockNorth, () -> cfg.lockNorth = !cfg.lockNorth);
-                addOption("Frame", () -> cfg.frameStyle.name(), () -> {
+                addSlider("saifunsmap.settings.opacity", 0.35, 1.0, 0.05,
+                    () -> (double) cfg.minimapOpacity,
+                    v -> ((int) Math.round(v * 100.0)) + "%",
+                    v -> cfg.minimapOpacity = (float) v,
+                    MapConfig::save);
+
+                addToggle("saifunsmap.settings.lock_north", () -> Lang.onOff(cfg.lockNorth),
+                    () -> cfg.lockNorth = !cfg.lockNorth);
+                addToggle("saifunsmap.settings.frame", () -> formatFrame(cfg.frameStyle), () -> {
                     MapConfig.FrameStyle[] vals = MapConfig.FrameStyle.values();
                     cfg.frameStyle = vals[(cfg.frameStyle.ordinal() + 1) % vals.length];
                 });
-                addBool("Compass", () -> cfg.showCompass, () -> cfg.showCompass = !cfg.showCompass);
-                addBool("Info Bar", () -> cfg.showInfoBar, () -> cfg.showInfoBar = !cfg.showInfoBar);
-                addBool("Info Bar Box", () -> cfg.showInfoBarBackground, () -> cfg.showInfoBarBackground = !cfg.showInfoBarBackground);
-                addBool("Biome & Time", () -> cfg.showBiome, () -> {
-                    cfg.showBiome = !cfg.showBiome;
-                    cfg.showTimeAndLight = cfg.showBiome;
-                });
+
+                addToggle("saifunsmap.settings.compass", () -> Lang.onOff(cfg.showCompass),
+                    () -> cfg.showCompass = !cfg.showCompass);
+                addToggle("saifunsmap.settings.info_bar", () -> Lang.onOff(cfg.showInfoBar),
+                    () -> cfg.showInfoBar = !cfg.showInfoBar);
+                addToggle("saifunsmap.settings.info_bg", () -> Lang.onOff(cfg.showInfoBarBackground),
+                    () -> cfg.showInfoBarBackground = !cfg.showInfoBarBackground);
+                addToggle("saifunsmap.settings.biome_info", () -> Lang.onOff(cfg.showBiome),
+                    () -> cfg.showBiome = !cfg.showBiome);
+                addToggle("saifunsmap.settings.time_light", () -> Lang.onOff(cfg.showTimeAndLight),
+                    () -> cfg.showTimeAndLight = !cfg.showTimeAndLight);
                 break;
 
             case ENGINE:
-                addOption("Cave Mode", () -> cfg.caveMode.name(), () -> {
+                addToggle("saifunsmap.settings.cave_mode", () -> formatCaveMode(cfg.caveMode), () -> {
                     MapConfig.CaveMode[] vals = MapConfig.CaveMode.values();
                     cfg.caveMode = vals[(cfg.caveMode.ordinal() + 1) % vals.length];
+                    if (cfg.caveMode == MapConfig.CaveMode.ON && SaifunsMapMod.proxy instanceof ClientProxy) {
+                        ((ClientProxy) SaifunsMapMod.proxy).getChunkScanner().triggerCaveRescan();
+                    }
                 });
-                addBool("Terrain Shading", () -> cfg.terrainShading, () -> {
+                addSlider("saifunsmap.settings.cave_slice", 2, 16, 1,
+                    () -> (double) cfg.caveSliceHeight,
+                    v -> "+" + ((int) Math.round(v)),
+                    v -> cfg.caveSliceHeight = (int) Math.round(v),
+                    MapConfig::save);
+
+                addToggle("saifunsmap.settings.terrain_shading", () -> Lang.onOff(cfg.terrainShading), () -> {
                     cfg.terrainShading = !cfg.terrainShading;
                     triggerReshade();
                 });
-                addBool("Biome Colors", () -> cfg.biomeColors, () -> cfg.biomeColors = !cfg.biomeColors);
-                addBool("Water Depth", () -> cfg.waterTransparency, () -> {
+                addToggle("saifunsmap.settings.biome_colors", () -> Lang.onOff(cfg.biomeColors), () -> {
+                    cfg.biomeColors = !cfg.biomeColors;
+                    BlockColorResolver.clearCache();
+                });
+                addToggle("saifunsmap.settings.water_trans", () -> Lang.onOff(cfg.waterTransparency), () -> {
                     cfg.waterTransparency = !cfg.waterTransparency;
                     triggerReshade();
                 });
-                addOption("Chunks / Tick", () -> String.valueOf(cfg.chunksScannedPerTick), () -> {
-                    cfg.chunksScannedPerTick = cfg.chunksScannedPerTick >= 16 ? 2 : cfg.chunksScannedPerTick + 2;
-                });
-                addBool("Disk Region Cache", () -> cfg.diskCacheEnabled, () -> cfg.diskCacheEnabled = !cfg.diskCacheEnabled);
-                addOption("Clear Map", () -> confirmClearMap ? "CONFIRM?" : "Keep WPs", () -> {
-                    if (!confirmClearMap) {
-                        confirmClearMap = true;
-                        return;
-                    }
-                    confirmClearMap = false;
-                    clearCurrentMapTiles();
-                });
+                addSlider("saifunsmap.settings.scan_budget", 2, 24, 2,
+                    () -> (double) cfg.chunksScannedPerTick,
+                    v -> ((int) Math.round(v)) + "/t",
+                    v -> cfg.chunksScannedPerTick = (int) Math.round(v),
+                    MapConfig::save);
+
+                addToggle("saifunsmap.settings.waypoints_world", () -> Lang.onOff(cfg.showWaypointsInWorld),
+                    () -> cfg.showWaypointsInWorld = !cfg.showWaypointsInWorld);
+                addSlider("saifunsmap.settings.waypoint_scale", 0.5, 1.8, 0.05,
+                    () -> (double) cfg.waypointScale,
+                    v -> String.format("%.2fx", v),
+                    v -> cfg.waypointScale = (float) v,
+                    MapConfig::save);
+
+                addToggle("saifunsmap.settings.waypoint_names", () -> Lang.onOff(cfg.alwaysShowWaypointNames),
+                    () -> cfg.alwaysShowWaypointNames = !cfg.alwaysShowWaypointNames);
+                addToggle("saifunsmap.settings.waypoint_beams", () -> Lang.onOff(cfg.showWaypointBeam),
+                    () -> cfg.showWaypointBeam = !cfg.showWaypointBeam);
+                addToggle("saifunsmap.settings.auto_death", () -> Lang.onOff(cfg.autoDeathWaypoints),
+                    () -> cfg.autoDeathWaypoints = !cfg.autoDeathWaypoints);
+                addToggle("saifunsmap.settings.disk_cache", () -> Lang.onOff(cfg.diskCacheEnabled),
+                    () -> cfg.diskCacheEnabled = !cfg.diskCacheEnabled);
+
+                currentItems.add(new ToggleItem(
+                    confirmClearMap ? "saifunsmap.settings.clear_map_confirm" : "saifunsmap.settings.clear_map",
+                    null,
+                    () -> {
+                        if (!confirmClearMap) {
+                            confirmClearMap = true;
+                        } else {
+                            confirmClearMap = false;
+                            if (SaifunsMapMod.proxy instanceof ClientProxy) {
+                                ClientProxy cp = (ClientProxy) SaifunsMapMod.proxy;
+                                cp.getWorldCache().clearCurrentDimensionMapData();
+                                cp.getChunkScanner().reset();
+                                if (mc.thePlayer != null) {
+                                    mc.thePlayer.addChatMessage(new ChatComponentText(
+                                        "\u00a7b[Saifun's Map]\u00a7r " + Lang.tr("saifunsmap.chat.cleared_map")
+                                    ));
+                                }
+                            }
+                        }
+                    },
+                    confirmClearMap
+                ));
                 break;
 
             case RADAR:
-                addBool("Entity Radar", () -> cfg.radarEnabled, () -> cfg.radarEnabled = !cfg.radarEnabled);
-                addOption("Icon Style", () -> cfg.radarIconStyle.name(), () -> {
+                addToggle("saifunsmap.settings.radar_enabled", () -> Lang.onOff(cfg.radarEnabled),
+                    () -> cfg.radarEnabled = !cfg.radarEnabled);
+                addToggle("saifunsmap.settings.radar_style", () -> formatRadarStyle(cfg.radarIconStyle), () -> {
                     MapConfig.RadarIconStyle[] vals = MapConfig.RadarIconStyle.values();
                     cfg.radarIconStyle = vals[(cfg.radarIconStyle.ordinal() + 1) % vals.length];
                 });
-                addBool("Players (Always)", () -> cfg.showPlayers, () -> cfg.showPlayers = !cfg.showPlayers);
-                addBool("Player Names", () -> cfg.showPlayerNames, () -> cfg.showPlayerNames = !cfg.showPlayerNames);
-                addBool("Hostile Mobs", () -> cfg.showHostileMobs, () -> cfg.showHostileMobs = !cfg.showHostileMobs);
-                addBool("Passive Mobs", () -> cfg.showPassiveMobs, () -> cfg.showPassiveMobs = !cfg.showPassiveMobs);
-                addBool("Tamed Mobs", () -> cfg.showTamedMobs, () -> cfg.showTamedMobs = !cfg.showTamedMobs);
-                addBool("Boss Mobs", () -> cfg.showBossMobs, () -> cfg.showBossMobs = !cfg.showBossMobs);
-                addBool("Items", () -> cfg.showItems, () -> cfg.showItems = !cfg.showItems);
-                addBool("Height Carets", () -> cfg.showHeightIndicator, () -> cfg.showHeightIndicator = !cfg.showHeightIndicator);
-                addOption("Icon Scale", () -> String.format("%.2fx", cfg.radarIconScale), () -> {
-                    cfg.radarIconScale = cfg.radarIconScale >= 1.5f ? 0.75f : cfg.radarIconScale + 0.25f;
-                });
-                addBool("Server Long-Range", () -> cfg.serverPlayerSyncEnabled, () -> cfg.serverPlayerSyncEnabled = !cfg.serverPlayerSyncEnabled);
+                addSlider("saifunsmap.settings.radar_scale", 0.6, 1.8, 0.05,
+                    () -> (double) cfg.radarIconScale,
+                    v -> String.format("%.2fx", v),
+                    v -> cfg.radarIconScale = (float) v,
+                    MapConfig::save);
+                addSlider("saifunsmap.settings.radar_max", 32, 256, 16,
+                    () -> (double) cfg.maxRadarEntities,
+                    v -> String.valueOf((int) Math.round(v)),
+                    v -> cfg.maxRadarEntities = (int) Math.round(v),
+                    MapConfig::save);
+
+                addToggle("saifunsmap.settings.radar_players", () -> Lang.onOff(cfg.showPlayers),
+                    () -> cfg.showPlayers = !cfg.showPlayers);
+                addToggle("saifunsmap.settings.radar_player_names", () -> Lang.onOff(cfg.showPlayerNames),
+                    () -> cfg.showPlayerNames = !cfg.showPlayerNames);
+                addToggle("saifunsmap.settings.radar_hostiles", () -> Lang.onOff(cfg.showHostileMobs),
+                    () -> cfg.showHostileMobs = !cfg.showHostileMobs);
+                addToggle("saifunsmap.settings.radar_passives", () -> Lang.onOff(cfg.showPassiveMobs),
+                    () -> cfg.showPassiveMobs = !cfg.showPassiveMobs);
+                addToggle("saifunsmap.settings.radar_tamed", () -> Lang.onOff(cfg.showTamedMobs),
+                    () -> cfg.showTamedMobs = !cfg.showTamedMobs);
+                addToggle("saifunsmap.settings.radar_bosses", () -> Lang.onOff(cfg.showBossMobs),
+                    () -> cfg.showBossMobs = !cfg.showBossMobs);
+                addToggle("saifunsmap.settings.radar_items", () -> Lang.onOff(cfg.showItems),
+                    () -> cfg.showItems = !cfg.showItems);
+                addToggle("saifunsmap.settings.radar_height", () -> Lang.onOff(cfg.showHeightIndicator),
+                    () -> cfg.showHeightIndicator = !cfg.showHeightIndicator);
                 break;
 
             case OVERLAYS:
-                addBool("GT Ore Vein Grid (3x3)", () -> cfg.showOreVeinGrid, () -> cfg.showOreVeinGrid = !cfg.showOreVeinGrid);
-                addBool("Vein Center Tint", () -> cfg.highlightOreVeinCenter, () -> cfg.highlightOreVeinCenter = !cfg.highlightOreVeinCenter);
-                addBool("Chunk Grid (16x16)", () -> cfg.showChunkGrid, () -> cfg.showChunkGrid = !cfg.showChunkGrid);
-                addBool("Slime Chunks", () -> cfg.showSlimeChunks, () -> cfg.showSlimeChunks = !cfg.showSlimeChunks);
-                addBool("GTNH Navigator API", () -> cfg.navigatorEnabled, () -> cfg.navigatorEnabled = !cfg.navigatorEnabled);
-                addBool("Navigator on Minimap", () -> cfg.showNavigatorOnMinimap, () -> cfg.showNavigatorOnMinimap = !cfg.showNavigatorOnMinimap);
-                addBool("Navigator on WorldMap", () -> cfg.showNavigatorOnWorldMap, () -> cfg.showNavigatorOnWorldMap = !cfg.showNavigatorOnWorldMap);
-                addBool("3D World Waypoints", () -> cfg.showWaypointsInWorld, () -> cfg.showWaypointsInWorld = !cfg.showWaypointsInWorld);
-                addBool("Always WP Names", () -> cfg.alwaysShowWaypointNames, () -> cfg.alwaysShowWaypointNames = !cfg.alwaysShowWaypointNames);
-                addOption("3D WP Scale", () -> String.format("%.2fx", cfg.waypointScale), () -> {
-                    cfg.waypointScale = cfg.waypointScale >= 1.5f ? 0.75f : cfg.waypointScale + 0.25f;
-                });
-                addBool("Waypoint Beams", () -> cfg.showWaypointBeam, () -> cfg.showWaypointBeam = !cfg.showWaypointBeam);
-                addBool("Auto Death Points", () -> cfg.autoDeathWaypoints, () -> cfg.autoDeathWaypoints = !cfg.autoDeathWaypoints);
+                addToggle("saifunsmap.settings.nav_bridge", () -> Lang.onOff(cfg.navigatorEnabled),
+                    () -> cfg.navigatorEnabled = !cfg.navigatorEnabled);
+                addToggle("saifunsmap.settings.nav_minimap", () -> Lang.onOff(cfg.showNavigatorOnMinimap),
+                    () -> cfg.showNavigatorOnMinimap = !cfg.showNavigatorOnMinimap);
+                addToggle("saifunsmap.settings.nav_worldmap", () -> Lang.onOff(cfg.showNavigatorOnWorldMap),
+                    () -> cfg.showNavigatorOnWorldMap = !cfg.showNavigatorOnWorldMap);
+                addToggle("saifunsmap.settings.ore_grid", () -> Lang.onOff(cfg.showOreVeinGrid),
+                    () -> cfg.showOreVeinGrid = !cfg.showOreVeinGrid);
+                addToggle("saifunsmap.settings.ore_center", () -> Lang.onOff(cfg.highlightOreVeinCenter),
+                    () -> cfg.highlightOreVeinCenter = !cfg.highlightOreVeinCenter);
+                addToggle("saifunsmap.settings.chunk_grid", () -> Lang.onOff(cfg.showChunkGrid),
+                    () -> cfg.showChunkGrid = !cfg.showChunkGrid);
+                addToggle("saifunsmap.settings.slime_chunks", () -> Lang.onOff(cfg.showSlimeChunks),
+                    () -> cfg.showSlimeChunks = !cfg.showSlimeChunks);
+                addToggle("saifunsmap.settings.wp_minimap", () -> Lang.onOff(cfg.showWaypointsOnMinimap),
+                    () -> cfg.showWaypointsOnMinimap = !cfg.showWaypointsOnMinimap);
+                addToggle("saifunsmap.settings.wp_worldmap", () -> Lang.onOff(cfg.showWaypointsOnWorldMap),
+                    () -> cfg.showWaypointsOnWorldMap = !cfg.showWaypointsOnWorldMap);
                 break;
         }
     }
 
-    private void addBool(String label, java.util.function.BooleanSupplier getter, Runnable toggle) {
-        currentOptions.add(new OptionEntry(label, () -> getter.getAsBoolean() ? "ON" : "OFF", toggle));
+    private void addToggle(String labelKey, Supplier<String> val, Runnable onClick) {
+        currentItems.add(new ToggleItem(labelKey, val, onClick, false));
     }
 
-    private void addOption(String label, java.util.function.Supplier<String> val, Runnable toggle) {
-        currentOptions.add(new OptionEntry(label, val, toggle));
+    private void addSlider(
+        String labelKey,
+        double min, double max, double step,
+        Supplier<Double> getter,
+        DoubleFunction<String> formatter,
+        DoubleConsumer onChange,
+        Runnable onRelease
+    ) {
+        currentItems.add(new SliderItem(labelKey, min, max, step, getter, formatter, onChange, onRelease));
     }
 
-    private void triggerReshade() {
+    private static String formatCorner(MapConfig.Corner c) {
+        switch (c) {
+            case TOP_LEFT: return Lang.tr("saifunsmap.settings.corner.top_left");
+            case BOTTOM_RIGHT: return Lang.tr("saifunsmap.settings.corner.bottom_right");
+            case BOTTOM_LEFT: return Lang.tr("saifunsmap.settings.corner.bottom_left");
+            default: return Lang.tr("saifunsmap.settings.corner.top_right");
+        }
+    }
+
+    private static String formatFrame(MapConfig.FrameStyle f) {
+        switch (f) {
+            case MINIMAL: return Lang.tr("saifunsmap.settings.frame.minimal");
+            case NONE: return Lang.tr("saifunsmap.settings.frame.none");
+            default: return Lang.tr("saifunsmap.settings.frame.modern");
+        }
+    }
+
+    private static String formatCaveMode(MapConfig.CaveMode m) {
+        switch (m) {
+            case ON: return Lang.tr("saifunsmap.settings.cave_mode.on");
+            case OFF: return Lang.tr("saifunsmap.settings.cave_mode.off");
+            default: return Lang.tr("saifunsmap.settings.cave_mode.auto");
+        }
+    }
+
+    private static String formatRadarStyle(MapConfig.RadarIconStyle s) {
+        switch (s) {
+            case DIAMONDS: return Lang.tr("saifunsmap.settings.radar_style.diamonds");
+            case DOTS: return Lang.tr("saifunsmap.settings.radar_style.dots");
+            default: return Lang.tr("saifunsmap.settings.radar_style.heads");
+        }
+    }
+
+    private static void triggerReshade() {
         if (SaifunsMapMod.proxy instanceof ClientProxy) {
             ((ClientProxy) SaifunsMapMod.proxy).getWorldCache().reshadeAllLoaded();
         }
     }
 
-    private void clearCurrentMapTiles() {
-        if (SaifunsMapMod.proxy instanceof ClientProxy) {
-            ClientProxy cp = (ClientProxy) SaifunsMapMod.proxy;
-            BlockColorResolver.clearCache();
-            int removed = cp.getWorldCache().clearCurrentDimensionMapData();
-            cp.getChunkScanner().reset();
-            if (this.mc != null && this.mc.thePlayer != null) {
-                this.mc.thePlayer.addChatMessage(new ChatComponentText(
-                    "\u00a7b[Saifun's Map]\u00a7r Cleared map tiles (" + removed + " region files removed, waypoints kept). Re-scanning..."
-                ));
-            }
-        }
-    }
-
     @Override
     protected void actionPerformed(GuiButton button) {
-        if (button.id == 999) {
+        if (button instanceof ModernSlider) {
+            return;
+        }
+        if (button.id == 99) {
             MapConfig.save();
             this.mc.displayGuiScreen(parent);
             return;
         }
-        if (button.id == 998) {
+        if (button.id == 98) {
+            confirmClearMap = false;
             if (!confirmResetDefaults) {
                 confirmResetDefaults = true;
                 rebuildButtons();
                 return;
             }
             confirmResetDefaults = false;
-            confirmClearMap = false;
             MapConfig.resetToDefaults();
+            BlockColorResolver.clearCache();
             triggerReshade();
-            if (this.mc != null && this.mc.thePlayer != null) {
-                this.mc.thePlayer.addChatMessage(new ChatComponentText(
-                    "\u00a7b[Saifun's Map]\u00a7r All settings reset to defaults."
+            if (mc.thePlayer != null) {
+                mc.thePlayer.addChatMessage(new ChatComponentText(
+                    "\u00a7b[Saifun's Map]\u00a7r " + Lang.tr("saifunsmap.chat.reset_defaults")
                 ));
             }
             rebuildButtons();
             return;
         }
-        if (button.id >= 100 && button.id < 110) {
-            int idx = button.id - 100;
-            Tab[] tabs = Tab.values();
-            if (idx >= 0 && idx < tabs.length) {
-                this.activeTab = tabs[idx];
-                this.confirmClearMap = false;
-                this.confirmResetDefaults = false;
-                rebuildButtons();
-            }
+        if (button.id >= 100 && button.id < 100 + Tab.values().length) {
+            confirmClearMap = false;
+            confirmResetDefaults = false;
+            activeTab = Tab.values()[button.id - 100];
+            rebuildButtons();
             return;
         }
-        if (button.id >= 200) {
-            int idx = button.id - 200;
-            if (idx >= 0 && idx < currentOptions.size()) {
-                confirmResetDefaults = false;
-                currentOptions.get(idx).onClick.run();
-                MapConfig.save();
-                rebuildButtons();
+        int idx = button.id - 200;
+        if (idx >= 0 && idx < currentItems.size()) {
+            confirmResetDefaults = false;
+            SettingItem item = currentItems.get(idx);
+            if (!(item instanceof ToggleItem && ("saifunsmap.settings.clear_map".equals(((ToggleItem) item).labelKey)
+                || "saifunsmap.settings.clear_map_confirm".equals(((ToggleItem) item).labelKey)))) {
+                confirmClearMap = false;
             }
+            item.onClick();
+            MapConfig.save();
+            rebuildButtons();
         }
     }
 
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
-        int panelW = 340;
-        int panelH = 234;
-        int panelX = (this.width - panelW) / 2;
-        int panelY = Math.max(24, (this.height - 230) / 2);
+        int panelW = 356;
+        int panelH = 248;
+        int panelX = computePanelX(panelW);
+        int panelY = Math.max(18, (this.height - panelH) / 2);
 
-        // Translucent sleek Xaero-style panel (leaving minimap visible live behind!)
+        // Translucent modern panel leaving the live minimap HUD visible behind!
         GLDraw.ensureBlend();
-        GLDraw.rect(panelX - 6, panelY - 4, panelX + panelW + 6, panelY + panelH, 0xE20C1017);
-        GLDraw.rectOutline(panelX - 6, panelY - 4, panelX + panelW + 6, panelY + panelH, 1.0, 0x88334155);
+        GLDraw.rect(panelX - 6, panelY - 4, panelX + panelW + 6, panelY + panelH + 4, 0xDF0B0F16);
+        GLDraw.rectOutline(panelX - 6, panelY - 4, panelX + panelW + 6, panelY + panelH + 4, 1.0, 0x88334155);
         GLDraw.rect(panelX - 6, panelY - 4, panelX + panelW + 6, panelY - 2, 0xFF3B82F6);
-        drawCenteredString(this.fontRendererObj, "Saifun's Map — Settings", this.width / 2, panelY + 6, 0xFFF8FAFC);
+
+        drawCenteredString(this.fontRendererObj, Lang.tr("saifunsmap.settings.title"), panelX + panelW / 2, panelY + 6, 0xFFF8FAFC);
+
+        if (activeTab == Tab.MINIMAP && MapConfig.get().minimapEnabled) {
+            String hint = "\u00a7a\u25cf \u00a77" + Lang.tr("saifunsmap.settings.preview_hint");
+            GLDraw.drawCenteredText(this.fontRendererObj, hint, panelX + panelW / 2.0, panelY + 211, 0.72f, 0xFF94A3B8);
+        }
 
         super.drawScreen(mouseX, mouseY, partialTicks);
     }
@@ -311,10 +508,5 @@ public class GuiMapSettings extends GuiScreen {
     @Override
     public boolean doesGuiPauseGame() {
         return false;
-    }
-
-    @Override
-    public void onGuiClosed() {
-        MapConfig.save();
     }
 }

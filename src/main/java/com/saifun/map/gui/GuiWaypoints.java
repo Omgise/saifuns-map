@@ -1,6 +1,7 @@
 package com.saifun.map.gui;
 
 import com.saifun.map.render.GLDraw;
+import com.saifun.map.util.Lang;
 import com.saifun.map.waypoints.Waypoint;
 import com.saifun.map.waypoints.WaypointImporter;
 import com.saifun.map.waypoints.WaypointManager;
@@ -13,7 +14,7 @@ import java.util.List;
 
 /**
  * Modern translucent Waypoints Manager with quick toggle, edit, teleport, chat share,
- * and one-click JourneyMap / legacy Xaero waypoint importers.
+ * and one-click JourneyMap waypoint importer.
  */
 public class GuiWaypoints extends GuiScreen {
 
@@ -57,12 +58,12 @@ public class GuiWaypoints extends GuiScreen {
         boolean hasSel = selectedIndex >= 0 && selectedIndex < displayed.size();
 
         // Row 1: Waypoint actions (sleek ModernButtons)
-        this.buttonList.add(new ModernButton(1, panelX, bottomY, 62, 19, "+ Add").setAccent(true));
-        ModernButton btnEdit = new ModernButton(2, panelX + 65, bottomY, 54, 19, "Edit");
-        ModernButton btnToggle = new ModernButton(3, panelX + 122, bottomY, 62, 19, "Toggle");
-        ModernButton btnTp = new ModernButton(4, panelX + 187, bottomY, 62, 19, "Teleport");
-        ModernButton btnShare = new ModernButton(5, panelX + 252, bottomY, 62, 19, "Share");
-        ModernButton btnDel = new ModernButton(6, panelX + 317, bottomY, 63, 19, "Delete");
+        this.buttonList.add(new ModernButton(1, panelX, bottomY, 64, 19, Lang.tr("saifunsmap.waypoints.add")).setAccent(true));
+        ModernButton btnEdit = new ModernButton(2, panelX + 67, bottomY, 48, 19, Lang.tr("saifunsmap.waypoints.edit"));
+        ModernButton btnToggle = new ModernButton(3, panelX + 118, bottomY, 60, 19, Lang.tr("saifunsmap.waypoints.toggle"));
+        ModernButton btnTp = new ModernButton(4, panelX + 181, bottomY, 64, 19, Lang.tr("saifunsmap.waypoints.teleport"));
+        ModernButton btnShare = new ModernButton(5, panelX + 248, bottomY, 68, 19, Lang.tr("saifunsmap.waypoints.share"));
+        ModernButton btnDel = new ModernButton(6, panelX + 319, bottomY, 61, 19, Lang.tr("saifunsmap.waypoints.delete"));
 
         btnEdit.enabled = hasSel;
         btnToggle.enabled = hasSel;
@@ -76,12 +77,12 @@ public class GuiWaypoints extends GuiScreen {
         this.buttonList.add(btnShare);
         this.buttonList.add(btnDel);
 
-        // Row 2: Importers, Dimension filter & Done
+        // Row 2: Importer, Dimension filter & Close
         int row2Y = bottomY + 23;
-        this.buttonList.add(new ModernButton(10, panelX, row2Y, 108, 19, "Import JourneyMap"));
-        this.buttonList.add(new ModernButton(11, panelX + 112, row2Y, 92, 19, "Import Xaero"));
-        this.buttonList.add(new ModernButton(12, panelX + 208, row2Y, 96, 19, showAllDimensions ? "Dims: ALL" : "Dims: Current"));
-        this.buttonList.add(new ModernButton(99, panelX + 308, row2Y, 72, 19, "Close"));
+        this.buttonList.add(new ModernButton(10, panelX, row2Y, 138, 19, Lang.tr("saifunsmap.waypoints.import_jm")));
+        this.buttonList.add(new ModernButton(12, panelX + 144, row2Y, 130, 19,
+            Lang.tr(showAllDimensions ? "saifunsmap.waypoints.dims_all" : "saifunsmap.waypoints.dims_current")));
+        this.buttonList.add(new ModernButton(99, panelX + 280, row2Y, 100, 19, Lang.tr("saifunsmap.common.close")));
     }
 
     @Override
@@ -120,7 +121,7 @@ public class GuiWaypoints extends GuiScreen {
             case 5:
                 if (sel != null) {
                     WaypointManager.shareInChat(sel);
-                    statusMessage = "Shared '" + sel.name + "' in chat.";
+                    statusMessage = Lang.tr("saifunsmap.waypoints.status.shared", sel.name);
                 }
                 break;
             case 6:
@@ -133,17 +134,8 @@ public class GuiWaypoints extends GuiScreen {
             case 10: {
                 int count = WaypointImporter.importFromJourneyMap(manager);
                 statusMessage = count > 0
-                    ? ("Imported " + count + " waypoint(s) from JourneyMap!")
-                    : "No new JourneyMap waypoints found.";
-                refreshList();
-                rebuildButtons();
-                break;
-            }
-            case 11: {
-                int count = WaypointImporter.importFromXaero(manager);
-                statusMessage = count > 0
-                    ? ("Imported " + count + " waypoint(s) from Xaero!")
-                    : "No new Xaero waypoints found.";
+                    ? Lang.tr("saifunsmap.waypoints.status.imported_jm", count)
+                    : Lang.tr("saifunsmap.waypoints.status.none_jm");
                 refreshList();
                 rebuildButtons();
                 break;
@@ -205,7 +197,7 @@ public class GuiWaypoints extends GuiScreen {
         GLDraw.rectOutline(panelX - 8, 14, panelX + panelW + 8, this.height - 8, 1.0, 0x88334155);
         GLDraw.rect(panelX - 8, 14, panelX + panelW + 8, 16, 0xFF3B82F6);
 
-        String title = "Saifun's Map — Waypoints (" + displayed.size() + ")";
+        String title = Lang.tr("saifunsmap.waypoints.title", displayed.size());
         drawCenteredString(this.fontRendererObj, title, this.width / 2, 22, 0xFFF8FAFC);
         if (!statusMessage.isEmpty()) {
             drawCenteredString(this.fontRendererObj, statusMessage, this.width / 2, 32, 0xFF4ADE80);

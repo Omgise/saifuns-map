@@ -14,7 +14,7 @@ import org.lwjgl.opengl.GL11;
 import java.util.List;
 
 /**
- * Modern Xaero-style 3D in-world waypoint renderer.
+ * Modern minimalist 3D in-world waypoint renderer.
  * - Constant, crisp ~13px screen size at any distance (never blows up across the screen).
  * - Smart crosshair focus: shows full name & distance smoothly when aiming near the waypoint
  *   or when close (< 24m); keeps distant/off-axis waypoints as clean minimal badges.
@@ -136,7 +136,7 @@ public class WaypointWorldRenderer {
                     GL11.glDisable(GL11.GL_DEPTH_TEST);
                     GL11.glDepthMask(false);
 
-                    // Sleek compact Xaero-style badge (+ luminous accent frame for active Ore Vein / Shared Beacon)
+                    // Sleek compact badge (+ luminous accent frame for active Ore Vein / Shared Beacon)
                     double hs = (priority || focused) ? 7.2 : 6.0;
                     if (priority) {
                         int accent = (wp.type == Waypoint.Type.NAVIGATOR) ? 0xFFFACC15 : 0xFF38BDF8;

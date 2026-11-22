@@ -2,6 +2,7 @@ package com.saifun.map.waypoints;
 
 import com.saifun.map.ClientEventHandler;
 import com.saifun.map.gui.GuiWaypointEdit;
+import com.saifun.map.util.Lang;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityClientPlayerMP;
 import net.minecraft.command.CommandBase;
@@ -44,7 +45,7 @@ public class CommandSaifunsMap extends CommandBase {
     @Override
     public void processCommand(ICommandSender sender, String[] args) {
         if (args == null || args.length == 0) {
-            reply(sender, "Usage: /smap share [name]  |  click [Save]/[Edit]/[Beacon] in shared waypoint messages.");
+            reply(sender, Lang.tr("saifunsmap.cmd.usage"));
             return;
         }
 
@@ -80,23 +81,23 @@ public class CommandSaifunsMap extends CommandBase {
         }
 
         if (args.length < 2) {
-            reply(sender, "\u00a7cMissing waypoint data.");
+            reply(sender, Lang.tr("saifunsmap.cmd.missing_data"));
             return;
         }
 
         Waypoint decoded = WaypointManager.decodeSharePayload(args[1]);
         if (decoded == null) {
-            reply(sender, "\u00a7cInvalid shared waypoint data.");
+            reply(sender, Lang.tr("saifunsmap.cmd.invalid_data"));
             return;
         }
 
         if ("save".equals(action)) {
             if (waypointManager.addIfNotDuplicate(decoded)) {
                 waypointManager.save();
-                reply(sender, "Saved waypoint '\u00a7e" + decoded.name + "\u00a7r' ("
-                    + decoded.x + ", " + decoded.y + ", " + decoded.z + ", Dim " + decoded.dimensionId + ").");
+                reply(sender, Lang.tr("saifunsmap.cmd.saved",
+                    decoded.name, decoded.x, decoded.y, decoded.z, decoded.dimensionId));
             } else {
-                reply(sender, "\u00a77Waypoint '\u00a7f" + decoded.name + "\u00a77' already exists.");
+                reply(sender, Lang.tr("saifunsmap.cmd.exists", decoded.name));
             }
         } else if ("edit".equals(action)) {
             GuiWaypointEdit screen = new GuiWaypointEdit(
@@ -121,10 +122,10 @@ public class CommandSaifunsMap extends CommandBase {
                 decoded.color
             );
             if (active) {
-                reply(sender, "Temporary 3D beacon set: '\u00a76" + decoded.name + "\u00a7r' ("
-                    + decoded.x + ", " + decoded.y + ", " + decoded.z + ").");
+                reply(sender, Lang.tr("saifunsmap.cmd.beacon_on",
+                    decoded.name, decoded.x, decoded.y, decoded.z));
             } else {
-                reply(sender, "\u00a77Temporary 3D beacon cleared.");
+                reply(sender, Lang.tr("saifunsmap.cmd.beacon_off"));
             }
         }
     }

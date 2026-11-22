@@ -12,6 +12,7 @@ import com.saifun.map.radar.EntityRadarManager;
 import com.saifun.map.radar.RadarEntity;
 import com.saifun.map.render.GLDraw;
 import com.saifun.map.render.GLStateGuard;
+import com.saifun.map.util.Lang;
 import com.saifun.map.waypoints.Waypoint;
 import com.saifun.map.waypoints.WaypointManager;
 import net.minecraft.client.Minecraft;
@@ -35,7 +36,7 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Fullscreen World Map redesigned 1-to-1 in modern Xaero's World Map minimalism (v2.0):
+ * Fullscreen World Map designed with clean modern minimalism:
  * - Zero bulky top bars or gray vanilla buttons.
  * - Floating bare shadowed coordinates & biome at top-center, minimalist compass rose top-right,
  *   sleek gear top-left, compact vector icon rail bottom-right, GTNH Navigator rail bottom-left.
@@ -181,7 +182,7 @@ public class GuiWorldMap extends GuiScreen {
         MapConfig cfg = MapConfig.get();
 
         // Top-left Gear (Settings)
-        uiButtons.add(new IconButton(BTN_SETTINGS, 8, 8, 22, "Settings (Y)", false));
+        uiButtons.add(new IconButton(BTN_SETTINGS, 8, 8, 22, Lang.tr("saifunsmap.worldmap.btn.settings"), false));
 
         // Bottom-right vertical icon rail
         int bs = 22;
@@ -190,13 +191,16 @@ public class GuiWorldMap extends GuiScreen {
         int count = 7;
         int startY = this.height - 10 - count * step;
 
-        uiButtons.add(new IconButton(BTN_ZOOM_IN, rx, startY, bs, "Zoom In (+)", false));
-        uiButtons.add(new IconButton(BTN_ZOOM_OUT, rx, startY + step, bs, "Zoom Out (-)", false));
-        uiButtons.add(new IconButton(BTN_CENTER, rx, startY + step * 2, bs, "Center on Player (C)", false));
-        uiButtons.add(new IconButton(BTN_CAVE, rx, startY + step * 3, bs, caveModeView ? "Cave Mode (ON)" : "Surface Mode", caveModeView));
-        uiButtons.add(new IconButton(BTN_ORE_GRID, rx, startY + step * 4, bs, cfg.showOreVeinGrid ? "GT Ore Vein Grid 3x3 (ON)" : "GT Ore Vein Grid 3x3 (OFF)", cfg.showOreVeinGrid));
-        uiButtons.add(new IconButton(BTN_CHUNK_GRID, rx, startY + step * 5, bs, cfg.showChunkGrid ? "Chunk Grid 16x16 (ON)" : "Chunk Grid 16x16 (OFF)", cfg.showChunkGrid));
-        uiButtons.add(new IconButton(BTN_WAYPOINTS, rx, startY + step * 6, bs, "Waypoints (U)", false));
+        uiButtons.add(new IconButton(BTN_ZOOM_IN, rx, startY, bs, Lang.tr("saifunsmap.worldmap.btn.zoom_in"), false));
+        uiButtons.add(new IconButton(BTN_ZOOM_OUT, rx, startY + step, bs, Lang.tr("saifunsmap.worldmap.btn.zoom_out"), false));
+        uiButtons.add(new IconButton(BTN_CENTER, rx, startY + step * 2, bs, Lang.tr("saifunsmap.worldmap.btn.center"), false));
+        uiButtons.add(new IconButton(BTN_CAVE, rx, startY + step * 3, bs,
+            Lang.tr(caveModeView ? "saifunsmap.worldmap.btn.cave_on" : "saifunsmap.worldmap.btn.cave_off"), caveModeView));
+        uiButtons.add(new IconButton(BTN_ORE_GRID, rx, startY + step * 4, bs,
+            Lang.tr(cfg.showOreVeinGrid ? "saifunsmap.worldmap.btn.ore_grid_on" : "saifunsmap.worldmap.btn.ore_grid_off"), cfg.showOreVeinGrid));
+        uiButtons.add(new IconButton(BTN_CHUNK_GRID, rx, startY + step * 5, bs,
+            Lang.tr(cfg.showChunkGrid ? "saifunsmap.worldmap.btn.chunk_grid_on" : "saifunsmap.worldmap.btn.chunk_grid_off"), cfg.showChunkGrid));
+        uiButtons.add(new IconButton(BTN_WAYPOINTS, rx, startY + step * 6, bs, Lang.tr("saifunsmap.worldmap.btn.waypoints"), false));
     }
 
     @Override
@@ -320,7 +324,7 @@ public class GuiWorldMap extends GuiScreen {
         contextGtnhCount = navActions.size();
 
         // 2. Standard map actions
-        String shareLabel = targetWp != null ? "Share Point" : "Share Location";
+        String shareLabel = Lang.tr(targetWp != null ? "saifunsmap.context.share_point" : "saifunsmap.context.share_location");
         contextMenuActions.add(new IGtnhLayerBridge.ContextAction(shareLabel, () -> {
             if (targetWp != null) {
                 WaypointManager.shareInChat(targetWp);
@@ -334,28 +338,28 @@ public class GuiWorldMap extends GuiScreen {
             }
         }));
 
-        contextMenuActions.add(new IGtnhLayerBridge.ContextAction("Add Waypoint Here", () -> {
+        contextMenuActions.add(new IGtnhLayerBridge.ContextAction(Lang.tr("saifunsmap.context.add_waypoint"), () -> {
             if (mc.theWorld != null) {
                 mc.displayGuiScreen(new GuiWaypointEdit(this, waypointManager, null, bx, by, bz, mc.theWorld.provider.dimensionId));
             }
         }));
 
-        contextMenuActions.add(new IGtnhLayerBridge.ContextAction("Teleport Here (/tp)", () -> {
+        contextMenuActions.add(new IGtnhLayerBridge.ContextAction(Lang.tr("saifunsmap.context.teleport"), () -> {
             WaypointManager.teleportTo(bx, by, bz);
             mc.displayGuiScreen(null);
         }));
 
-        contextMenuActions.add(new IGtnhLayerBridge.ContextAction("Copy Coordinates", () -> {
+        contextMenuActions.add(new IGtnhLayerBridge.ContextAction(Lang.tr("saifunsmap.context.copy_coords"), () -> {
             try {
                 String coords = bx + " " + by + " " + bz;
                 Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(coords), null);
                 if (mc.thePlayer != null) {
-                    mc.thePlayer.addChatMessage(new ChatComponentText("\u00a7b[Saifun's Map]\u00a7r Copied: " + coords));
+                    mc.thePlayer.addChatMessage(new ChatComponentText("\u00a7b[Saifun's Map]\u00a7r " + Lang.tr("saifunsmap.chat.copied", coords)));
                 }
             } catch (Throwable ignored) {}
         }));
 
-        contextMenuActions.add(new IGtnhLayerBridge.ContextAction("Center on Player", () -> {
+        contextMenuActions.add(new IGtnhLayerBridge.ContextAction(Lang.tr("saifunsmap.context.center_player"), () -> {
             if (mc.thePlayer != null) {
                 glideTargetX = mc.thePlayer.posX;
                 glideTargetZ = mc.thePlayer.posZ;
@@ -745,7 +749,7 @@ public class GuiWorldMap extends GuiScreen {
             }
             lastHoveredWaypoint = hoveredWp;
 
-            // 7. Crisp red-accent Xaero player arrow
+            // 7. Crisp red-accent player arrow
             double pSx = worldToScreenX(player.posX, cxScreen);
             double pSy = worldToScreenY(player.posZ, cyScreen);
             drawPlayerChevron(pSx, pSy, player.rotationYaw - 180.0f);
@@ -971,7 +975,7 @@ public class GuiWorldMap extends GuiScreen {
             double hs = hit ? 6.8 : 5.6;
             float op = hit ? 1.0f : baseOpacity;
 
-            // Sleek Xaero pin badge (softly dimmed when GTNH overlay is active, full bright on hover)
+            // Sleek pin badge (softly dimmed when GTNH overlay is active, full bright on hover)
             GLDraw.rect(sx - hs - 0.8, sy - hs - 0.8, sx + hs + 0.8, sy + hs + 0.8, GLDraw.withAlpha(0x0A0D12, 0.93f * op));
             GLDraw.rect(sx - hs, sy - hs, sx + hs, sy + hs, wp.getArgb(Math.round(242 * op)));
 
@@ -995,13 +999,13 @@ public class GuiWorldMap extends GuiScreen {
         GLDraw.drawCenteredText(this.fontRendererObj, coordLine, this.width * 0.5, 7, 0.86f, 0xFFF8FAFC);
 
         BiomeGenBase biome = world.getBiomeGenForCoords(bx, bz);
-        String sub = biome != null ? biome.biomeName : ("Dim " + world.provider.dimensionId);
-        if (caveModeView) sub = sub + "  [Cave]";
+        String sub = biome != null ? biome.biomeName : Lang.tr("saifunsmap.common.dim", world.provider.dimensionId);
+        if (caveModeView) sub = sub + "  " + Lang.tr("saifunsmap.worldmap.cave_tag");
         GLDraw.drawCenteredText(this.fontRendererObj, sub, this.width * 0.5, 17, 0.74f, 0xFFCBD5E1);
     }
 
     private void renderCompassRose(double cx, double cy) {
-        // Minimalist Xaero compass cross in top-right (matching screenshot #7!)
+        // Minimalist compass cross in top-right
         GLDraw.ensureBlend();
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glLineWidth(1.0f);
@@ -1026,7 +1030,7 @@ public class GuiWorldMap extends GuiScreen {
             IconButton b = uiButtons.get(i);
             boolean hover = b.hit(mouseX, mouseY);
 
-            // True modern Xaero minimalism: borderless crisp icons at rest, sleek soft pill ONLY on hover/active!
+            // Clean borderless icons at rest, sleek soft pill ONLY on hover/active
             if (b.active) {
                 GLDraw.rect(b.x, b.y, b.x + b.size, b.y + b.size, 0xAA2563EB);
             } else if (hover) {
@@ -1169,7 +1173,7 @@ public class GuiWorldMap extends GuiScreen {
             GLDraw.ensureBlend();
             if (searchField.getText().isEmpty() && !searchField.isFocused()) {
                 this.fontRendererObj.drawStringWithShadow(
-                    "Search GTNH ores / fluids...",
+                    Lang.tr("saifunsmap.worldmap.search_hint"),
                     searchField.xPosition + 4, searchField.yPosition + 4, 0xFF64748B
                 );
             }
@@ -1271,7 +1275,7 @@ public class GuiWorldMap extends GuiScreen {
         GL11.glVertex2d(4.5, 4.5);
         GL11.glEnd();
 
-        // Crisp red Xaero World Map arrow (matching screenshot #7!)
+        // Crisp red World Map player arrow
         GLDraw.setColor(0xFFEF4444);
         GL11.glBegin(GL11.GL_TRIANGLES);
         GL11.glVertex2d(0.0, -4.6);

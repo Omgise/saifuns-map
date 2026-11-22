@@ -9,6 +9,7 @@ import com.saifun.map.SaifunsMapMod;
 import com.saifun.map.compat.ShareWhereIAmBridge;
 import com.saifun.map.config.MapConfig;
 import com.saifun.map.engine.MapWorldCache;
+import com.saifun.map.util.Lang;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityClientPlayerMP;
 import net.minecraft.event.ClickEvent;
@@ -38,7 +39,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Manages per-world waypoints, auto-death points, chat sharing/parsing (JourneyMap & Xaero compatible),
+ * Manages per-world waypoints, auto-death points, chat sharing/parsing (ShareWhereIAm & JourneyMap compatible),
  * and Navigator active waypoints.
  */
 public class WaypointManager {
@@ -65,10 +66,6 @@ public class WaypointManager {
     // Parses standard GTNH JourneyMap shared waypoints: [name:"Base", x:100, y:64, z:-200, dim:0]
     private static final Pattern JM_CHAT_PATTERN = Pattern.compile(
         "\\[name:\"?([^\",\\]]+)\"?,\\s*x:(-?\\d+),\\s*y:(-?\\d+),\\s*z:(-?\\d+)(?:,\\s*dim:(-?\\d+))?\\]"
-    );
-    // Parses Xaero shared waypoints: xaero-waypoint:Name:I:x:y:z:color:...
-    private static final Pattern XAERO_CHAT_PATTERN = Pattern.compile(
-        "xaero-waypoint:([^:]+):([^:]*):(-?\\d+):(~|-?\\d+):(-?\\d+):(\\d+):"
     );
 
     private final MapWorldCache worldCache;
@@ -316,7 +313,7 @@ public class WaypointManager {
             Waypoint death = new Waypoint("Death (" + dx + ", " + dz + ")", "X", dx, dy, dz, dim, 0xEF4444, Waypoint.Type.DEATH);
             addWaypoint(death);
             player.addChatMessage(new ChatComponentText(
-                "\u00a7b[Saifun's Map]\u00a7r Saved death waypoint at \u00a7e" + dx + ", " + dy + ", " + dz + "\u00a7r (Dim " + dim + ")"
+                "\u00a7b[Saifun's Map]\u00a7r " + Lang.tr("saifunsmap.chat.death_saved", dx, dy, dz, dim)
             ));
         }
         wasDeadLastTick = deadNow;
@@ -416,7 +413,7 @@ public class WaypointManager {
             ChatComponentText who = new ChatComponentText(sender);
             who.setChatStyle(new ChatStyle().setColor(EnumChatFormatting.GREEN));
             header.appendSibling(who);
-            header.appendText(" shared a waypoint:");
+            header.appendText(" " + Lang.tr("saifunsmap.chat.shared_header"));
             player.addChatMessage(header);
         }
 
@@ -431,29 +428,29 @@ public class WaypointManager {
         nameComp.setChatStyle(new ChatStyle().setBold(true).setColor(EnumChatFormatting.WHITE));
         line.appendSibling(nameComp);
 
-        String coordsStr = String.format(" (%d, %d, %d) [Dim %d] ", wp.x, wp.y, wp.z, wp.dimensionId);
+        String coordsStr = String.format(" (%d, %d, %d) [%s] ", wp.x, wp.y, wp.z, Lang.tr("saifunsmap.common.dim", wp.dimensionId));
         ChatComponentText coordsComp = new ChatComponentText(coordsStr);
         coordsComp.setChatStyle(new ChatStyle().setColor(EnumChatFormatting.GRAY));
         line.appendSibling(coordsComp);
 
         line.appendSibling(makeChatButton(
-            "[Save]",
+            Lang.tr("saifunsmap.chat.btn.save"),
             EnumChatFormatting.GREEN,
-            "Click to save waypoint immediately",
+            Lang.tr("saifunsmap.chat.btn.save_hover"),
             "/smap save " + payload
         ));
         line.appendText(" ");
         line.appendSibling(makeChatButton(
-            "[Edit]",
+            Lang.tr("saifunsmap.chat.btn.edit"),
             EnumChatFormatting.AQUA,
-            "Click to edit & save waypoint",
+            Lang.tr("saifunsmap.chat.btn.edit_hover"),
             "/smap edit " + payload
         ));
         line.appendText(" ");
         line.appendSibling(makeChatButton(
-            "[Beacon]",
+            Lang.tr("saifunsmap.chat.btn.beacon"),
             EnumChatFormatting.GOLD,
-            "Click to toggle temporary 3D beacon",
+            Lang.tr("saifunsmap.chat.btn.beacon_hover"),
             "/smap beacon " + payload
         ));
 
@@ -478,7 +475,7 @@ public class WaypointManager {
     }
 
     /**
-     * Detects JourneyMap or Xaero shared waypoints in incoming chat and returns a parsed Waypoint if found.
+     * Detects JourneyMap shared waypoints in incoming chat and returns a parsed Waypoint if found.
      */
     public static Waypoint tryParseChatWaypoint(String message, int currentDim) {
         if (message == null || message.isEmpty()) return null;
@@ -492,16 +489,6 @@ public class WaypointManager {
             int z = Integer.parseInt(jm.group(4));
             int dim = jm.group(5) != null ? Integer.parseInt(jm.group(5)) : currentDim;
             return new Waypoint(name, null, x, y, z, dim, pickRandomColor(), Waypoint.Type.NORMAL);
-        }
-
-        Matcher xm = XAERO_CHAT_PATTERN.matcher(clean);
-        if (xm.find()) {
-            String name = xm.group(1).trim();
-            String initials = xm.group(2).trim();
-            int x = Integer.parseInt(xm.group(3));
-            int y = "~".equals(xm.group(4)) ? 70 : Integer.parseInt(xm.group(4));
-            int z = Integer.parseInt(xm.group(5));
-            return new Waypoint(name, initials, x, y, z, currentDim, pickRandomColor(), Waypoint.Type.NORMAL);
         }
         return null;
     }

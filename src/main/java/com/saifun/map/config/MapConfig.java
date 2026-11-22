@@ -12,8 +12,8 @@ import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Persisted JSON configuration for Saifun's Map v2.0.
- * Defaults tuned for modern Xaero minimalism and clean GTNH gameplay.
+ * Persisted JSON configuration for Saifun's Map.
+ * Defaults tuned for crisp modern minimalism and clean GTNH gameplay.
  */
 public class MapConfig {
 
@@ -47,7 +47,7 @@ public class MapConfig {
     }
 
     public enum FrameStyle {
-        XAERO_MODERN,
+        MODERN,
         MINIMAL,
         NONE
     }
@@ -55,7 +55,7 @@ public class MapConfig {
     // --- Config schema migration ---
     public int configVersion = 3;
 
-    // --- Minimap Display (Compact, proportional Xaero defaults for 1080p/2K/3x GUI) ---
+    // --- Minimap Display (Compact, proportional defaults for 1080p/2K/3x GUI) ---
     public boolean minimapEnabled = true;
     public boolean circularMinimap = false;
     public int minimapSize = 96;
@@ -65,10 +65,10 @@ public class MapConfig {
     public boolean lockNorth = false;
     public float minimapZoom = 1.15f;
     public float minimapOpacity = 1.0f;
-    public FrameStyle frameStyle = FrameStyle.XAERO_MODERN;
+    public FrameStyle frameStyle = FrameStyle.MODERN;
     public boolean showCompass = true;
     public boolean showInfoBar = true;
-    public boolean showInfoBarBackground = false; // Bare crisp shadowed text like modern Xaero!
+    public boolean showInfoBarBackground = false; // Bare crisp shadowed text under minimap
     public boolean showCoordinates = true;
     public boolean showBiome = false;
     public boolean showTimeAndLight = false;
@@ -90,7 +90,7 @@ public class MapConfig {
     public boolean highlightOreVeinCenter = false;
     public boolean showSlimeChunks = false;
 
-    // --- Waypoints & 3D World Markers (Clean Xaero defaults) ---
+    // --- Waypoints & 3D World Markers ---
     public boolean showWaypointsOnMinimap = true;
     public boolean showWaypointsOnWorldMap = true;
     public boolean showWaypointsInWorld = true;
@@ -204,6 +204,6 @@ public class MapConfig {
         if (caveMode == null) caveMode = CaveMode.AUTO;
         if (lightingMode == null) lightingMode = LightingMode.AUTO;
         if (radarIconStyle == null) radarIconStyle = RadarIconStyle.HEADS;
-        if (frameStyle == null) frameStyle = FrameStyle.XAERO_MODERN;
+        if (frameStyle == null) frameStyle = FrameStyle.MODERN;
     }
 }

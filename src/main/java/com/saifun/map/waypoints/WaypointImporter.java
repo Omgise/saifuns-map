@@ -7,7 +7,6 @@ import com.google.gson.JsonParser;
 import com.saifun.map.SaifunsMapMod;
 import net.minecraft.client.Minecraft;
 
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStreamReader;
@@ -16,16 +15,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * One-click importer for existing JourneyMap (JSON) and legacy Xaero's Minimap (txt) waypoints.
+ * One-click importer for existing JourneyMap (JSON) waypoints.
  */
 public final class WaypointImporter {
-
-    private static final int[] XAERO_COLORS = {
-        0x000000, 0x0000AA, 0x00AA00, 0x00AAAA,
-        0xAA0000, 0xAA00AA, 0xFFAA00, 0xAAAAAA,
-        0x555555, 0x5555FF, 0x55FF55, 0x55FFFF,
-        0xFF5555, 0xFF55FF, 0xFFFF55, 0xFFFFFF
-    };
 
     private WaypointImporter() {}
 
@@ -68,7 +60,9 @@ public final class WaypointImporter {
                 if (dims.isEmpty()) dims.add(0);
 
                 for (int dim : dims) {
-                    Waypoint wp = new Waypoint(name, null, x, y, z, dim, rgb, type);
+                    int wx = (dim == -1) ? (x / 8) : x;
+                    int wz = (dim == -1) ? (z / 8) : z;
+                    Waypoint wp = new Waypoint(name, null, wx, y, wz, dim, rgb, type);
                     wp.enabled = enabled;
                     if (manager.addIfNotDuplicate(wp)) {
                         imported++;
@@ -80,55 +74,6 @@ public final class WaypointImporter {
         }
         if (imported > 0) manager.save();
         return imported;
-    }
-
-    public static int importFromXaero(WaypointManager manager) {
-        File xaeroRoot = new File(Minecraft.getMinecraft().mcDataDir, "XaeroWaypoints");
-        if (!xaeroRoot.exists() || !xaeroRoot.isDirectory()) return 0;
-
-        List<File> txtFiles = new ArrayList<>();
-        collectFilesNamed(xaeroRoot, ".txt", null, txtFiles);
-
-        int imported = 0;
-        for (File f : txtFiles) {
-            int dim = parseXaeroDimension(f.getParentFile());
-            try (BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(f), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = br.readLine()) != null) {
-                    if (!line.startsWith("waypoint:")) continue;
-                    String[] parts = line.split(":");
-                    if (parts.length < 7) continue;
-                    String name = parts[1];
-                    String initials = parts[2];
-                    int x = Integer.parseInt(parts[3]);
-                    int y = "~".equals(parts[4]) ? 70 : Integer.parseInt(parts[4]);
-                    int z = Integer.parseInt(parts[5]);
-                    int colorIdx = Math.max(0, Math.min(XAERO_COLORS.length - 1, Integer.parseInt(parts[6])));
-                    boolean disabled = parts.length > 7 && Boolean.parseBoolean(parts[7]);
-
-                    Waypoint wp = new Waypoint(name, initials, x, y, z, dim, XAERO_COLORS[colorIdx], Waypoint.Type.NORMAL);
-                    wp.enabled = !disabled;
-                    if (manager.addIfNotDuplicate(wp)) {
-                        imported++;
-                    }
-                }
-            } catch (Exception e) {
-                SaifunsMapMod.LOG.debug("Skipped Xaero waypoint file {}: {}", f.getName(), e.getMessage());
-            }
-        }
-        if (imported > 0) manager.save();
-        return imported;
-    }
-
-    private static int parseXaeroDimension(File dimFolder) {
-        if (dimFolder == null) return 0;
-        String name = dimFolder.getName();
-        if (name.startsWith("dim%")) {
-            try {
-                return Integer.parseInt(name.substring(4));
-            } catch (NumberFormatException ignored) {}
-        }
-        return 0;
     }
 
     private static void collectFilesNamed(File dir, String ext, String requiredParent, List<File> out) {

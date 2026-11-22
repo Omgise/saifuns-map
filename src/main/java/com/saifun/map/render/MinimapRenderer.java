@@ -25,8 +25,8 @@ import org.lwjgl.opengl.GL11;
 import java.util.List;
 
 /**
- * Modern Xaero-style Minimalist Minimap HUD renderer (v2.0).
- * - Crisp 3-layer hairline Xaero frame (or Circle / Minimal / None).
+ * Modern minimalist Minimap HUD renderer.
+ * - Crisp 3-layer hairline frame (or Circle / Minimal / None).
  * - Smooth deltaTime-based zoom and Enlarge Minimap (Z) animations.
  * - Minimalist inside-rim compass letters and bare shadowed coordinates underneath.
  * - Explored-only overlays, compact entity heads/diamonds, waypoints, and GTNH Navigator layers.
@@ -226,13 +226,13 @@ public class MinimapRenderer {
             float arrowAngle = cfg.lockNorth ? (playerYaw - 180.0f) : 0.0f;
             renderPlayerMarker(centerX, centerY, arrowAngle, cfg.lockNorth);
 
-            // 6. Clean thin Xaero Frame & inside-rim minimalist Compass
+            // 6. Clean thin Frame & inside-rim minimalist Compass
             renderFrame(left, top, size, centerX, centerY, half, cfg);
             if (cfg.showCompass) {
                 renderCompass(centerX, centerY, half, mapRotationDeg, cfg.circularMinimap);
             }
 
-            // 7. Minimalist shadowed coordinates underneath (matching modern Xaero screenshot #8!)
+            // 7. Minimalist shadowed coordinates underneath
             if (cfg.showInfoBar) {
                 renderInfoBar(world, player, left, top, size, bottomAligned, caveMode);
             }
@@ -500,7 +500,7 @@ public class MinimapRenderer {
         GLDraw.ensureBlend();
 
         if (!showArrow) {
-            // Minimalist crisp modern Xaero center crosshair dot (like screenshot #8!)
+            // Minimalist crisp center crosshair dot
             GLDraw.rect(-2.5, -0.7, 2.5, 0.7, 0xCC0A0D12);
             GLDraw.rect(-0.7, -2.5, 0.7, 2.5, 0xCC0A0D12);
             GLDraw.rect(-2.0, -0.45, 2.0, 0.45, 0xFFFFFFFF);
@@ -542,7 +542,7 @@ public class MinimapRenderer {
         MapConfig cfg
     ) {
         if (cfg.frameStyle == MapConfig.FrameStyle.NONE) return;
-        boolean modern = cfg.frameStyle == MapConfig.FrameStyle.XAERO_MODERN;
+        boolean modern = cfg.frameStyle == MapConfig.FrameStyle.MODERN;
 
         if (cfg.circularMinimap) {
             if (modern) {
@@ -554,7 +554,7 @@ public class MinimapRenderer {
             }
         } else {
             if (modern) {
-                // Exact modern Xaero 3-layer hairline frame (dark -> soft steel gray -> dark, matching screenshot #8!)
+                // Clean 3-layer hairline frame (dark -> soft steel gray -> dark)
                 GLDraw.rectOutline(left - 2.4, top - 2.4, left + size + 2.4, top + size + 2.4, 1.0, 0xFF12151B);
                 GLDraw.rectOutline(left - 1.4, top - 1.4, left + size + 1.4, top + size + 1.4, 1.0, 0xFF8E96A3);
                 GLDraw.rectOutline(left - 0.4, top - 0.4, left + size + 0.4, top + size + 0.4, 0.8, 0xFF12151B);
@@ -593,7 +593,7 @@ public class MinimapRenderer {
                 py = cy + (dy / m) * (half - inset);
             }
 
-            // Sleek micro-badge tucked cleanly inside the rim (matching modern Xaero screenshot #8!)
+            // Sleek micro-badge tucked cleanly inside the rim
             int bg = i == 0 ? 0xBB4F5FD5 : 0xAA3B478F;
             int fg = i == 0 ? 0xFFFFFFFF : 0xFFE2E8F0;
 

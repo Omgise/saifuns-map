@@ -19,6 +19,7 @@ import com.gtnewhorizons.navigator.api.model.waypoints.WaypointManager;
 import com.saifun.map.SaifunsMapMod;
 import com.saifun.map.config.MapConfig;
 import com.saifun.map.render.GLDraw;
+import com.saifun.map.util.Lang;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.gui.GuiScreen;
@@ -688,8 +689,8 @@ public class NavigatorBridge implements IGtnhLayerBridge {
                     if (loc instanceof IWaypointAndLocationProvider) {
                         boolean tracked = ((IWaypointAndLocationProvider) loc).isActiveAsWaypoint();
                         String trackLabel = tracked
-                            ? (isOreVein ? "Untrack Vein" : "Untrack Target")
-                            : (isOreVein ? "Track Vein (Beacon)" : "Track Target (Beacon)");
+                            ? Lang.tr(isOreVein ? "saifunsmap.context.untrack_vein" : "saifunsmap.context.untrack_target")
+                            : Lang.tr(isOreVein ? "saifunsmap.context.track_vein" : "saifunsmap.context.track_target");
                         actions.add(new ContextAction(trackLabel, () -> {
                             try {
                                 ((UniversalInteractableRenderer) ulr).setRenderStepHover(step);
@@ -700,7 +701,7 @@ public class NavigatorBridge implements IGtnhLayerBridge {
                         }));
                     }
 
-                    String actionLabel = isOreVein ? "Toggle Depleted (Del)" : "Toggle Mark (Del)";
+                    String actionLabel = Lang.tr(isOreVein ? "saifunsmap.context.toggle_depleted" : "saifunsmap.context.toggle_mark");
                     actions.add(new ContextAction(actionLabel, () -> {
                         try {
                             step.onActionKeyPressed();
@@ -723,7 +724,7 @@ public class NavigatorBridge implements IGtnhLayerBridge {
                 Object hoveredObj = hoveredStepField.get(ulr);
                 if (hoveredObj instanceof UniversalLocationInteractableStep) {
                     final UniversalLocationInteractableStep<?> step = (UniversalLocationInteractableStep<?>) hoveredObj;
-                    actions.add(new ContextAction("Toggle Chunk Load", () -> {
+                    actions.add(new ContextAction(Lang.tr("saifunsmap.context.toggle_chunk_load"), () -> {
                         try {
                             ((UniversalInteractableRenderer) ulr).setRenderStepHover(step);
                             ((InteractableLayer) ulr).onMapClick(true, rawX, rawY, blockX, blockZ);
@@ -731,7 +732,7 @@ public class NavigatorBridge implements IGtnhLayerBridge {
                             lastFullRecacheMs = 0L;
                         } catch (Throwable ignored) {}
                     }));
-                    actions.add(new ContextAction("Unclaim Chunk (Del)", () -> {
+                    actions.add(new ContextAction(Lang.tr("saifunsmap.context.unclaim_chunk"), () -> {
                         try {
                             step.onActionKeyPressed();
                             lm.forceRefresh();
@@ -739,7 +740,7 @@ public class NavigatorBridge implements IGtnhLayerBridge {
                         } catch (Throwable ignored) {}
                     }));
                 } else {
-                    actions.add(new ContextAction("Claim Chunk", () -> {
+                    actions.add(new ContextAction(Lang.tr("saifunsmap.context.claim_chunk"), () -> {
                         try {
                             ((UniversalInteractableRenderer) ulr).clearRenderStepHover();
                             ((InteractableLayer) ulr).onMapClick(true, rawX, rawY, blockX, blockZ);

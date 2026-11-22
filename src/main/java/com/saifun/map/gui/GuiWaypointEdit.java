@@ -1,6 +1,7 @@
 package com.saifun.map.gui;
 
 import com.saifun.map.render.GLDraw;
+import com.saifun.map.util.Lang;
 import com.saifun.map.waypoints.Waypoint;
 import com.saifun.map.waypoints.WaypointManager;
 import net.minecraft.client.gui.GuiButton;
@@ -40,7 +41,7 @@ public class GuiWaypointEdit extends GuiScreen {
             parent,
             manager,
             editing,
-            editing != null ? editing.name : "New Waypoint",
+            editing != null ? editing.name : Lang.tr("saifunsmap.wpedit.default_name"),
             x, y, z, dim,
             editing != null ? (editing.color & 0xFFFFFF) : WaypointManager.pickRandomColor()
         );
@@ -108,10 +109,10 @@ public class GuiWaypointEdit extends GuiScreen {
         hexField.setMaxStringLength(7);
         hexField.setText(colorPicker.getHexString());
 
-        this.buttonList.add(new ModernButton(1, panelX + 132, panelY + 168, 72, 18, enabled ? "Visible: ON" : "Visible: OFF"));
-        this.buttonList.add(new ModernButton(2, panelX + 208, panelY + 168, 72, 18, "Random"));
-        this.buttonList.add(new ModernButton(10, panelX + 12, panelY + 204, 130, 20, "Save").setAccent(true));
-        this.buttonList.add(new ModernButton(11, panelX + 150, panelY + 204, 130, 20, "Cancel"));
+        this.buttonList.add(new ModernButton(1, panelX + 132, panelY + 168, 72, 18, Lang.tr("saifunsmap.wpedit.enabled", Lang.onOff(enabled))));
+        this.buttonList.add(new ModernButton(2, panelX + 208, panelY + 168, 72, 18, Lang.tr("saifunsmap.wpedit.random")));
+        this.buttonList.add(new ModernButton(10, panelX + 12, panelY + 204, 130, 20, Lang.tr("saifunsmap.common.save")).setAccent(true));
+        this.buttonList.add(new ModernButton(11, panelX + 150, panelY + 204, 130, 20, Lang.tr("saifunsmap.common.cancel")));
     }
 
     @Override
@@ -123,7 +124,7 @@ public class GuiWaypointEdit extends GuiScreen {
     protected void actionPerformed(GuiButton button) {
         if (button.id == 1) {
             enabled = !enabled;
-            button.displayString = enabled ? "Visible: ON" : "Visible: OFF";
+            button.displayString = Lang.tr("saifunsmap.wpedit.enabled", Lang.onOff(enabled));
         } else if (button.id == 2) {
             currentColor = WaypointManager.pickRandomColor();
             colorPicker.setRgb(currentColor);
@@ -286,11 +287,13 @@ public class GuiWaypointEdit extends GuiScreen {
         GLDraw.rectOutline(panelX, panelY, panelX + panelW, panelY + panelH, 1.0, 0x88334155);
         GLDraw.rect(panelX, panelY, panelX + panelW, panelY + 2, 0xFF000000 | currentColor);
 
-        String title = editing != null ? "Edit Waypoint (Dim " + defaultDim + ")" : "Add Waypoint (Dim " + defaultDim + ")";
+        String title = editing != null
+            ? Lang.tr("saifunsmap.wpedit.title_edit", defaultDim)
+            : Lang.tr("saifunsmap.wpedit.title_new", defaultDim);
         drawCenteredString(this.fontRendererObj, title, this.width / 2, panelY + 8, 0xFFF8FAFC);
 
-        this.fontRendererObj.drawStringWithShadow("Name", panelX + 12, panelY + 22, 0xFF94A3B8);
-        this.fontRendererObj.drawStringWithShadow("Tag", panelX + 226, panelY + 22, 0xFF94A3B8);
+        this.fontRendererObj.drawStringWithShadow(Lang.tr("saifunsmap.wpedit.name"), panelX + 12, panelY + 22, 0xFF94A3B8);
+        this.fontRendererObj.drawStringWithShadow(Lang.tr("saifunsmap.wpedit.tag"), panelX + 226, panelY + 22, 0xFF94A3B8);
         this.fontRendererObj.drawStringWithShadow("X", panelX + 12, panelY + 56, 0xFF94A3B8);
         this.fontRendererObj.drawStringWithShadow("Y", panelX + 104, panelY + 56, 0xFF94A3B8);
         this.fontRendererObj.drawStringWithShadow("Z", panelX + 196, panelY + 56, 0xFF94A3B8);

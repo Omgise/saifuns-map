@@ -5,7 +5,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiButton;
 
 /**
- * Clean modern dark Xaero-style flat button replacing legacy gray stone Minecraft GuiButtons.
+ * Clean modern dark flat button replacing legacy gray stone Minecraft GuiButtons.
  */
 public class ModernButton extends GuiButton {
 
