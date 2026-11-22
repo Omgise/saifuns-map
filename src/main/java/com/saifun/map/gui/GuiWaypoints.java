@@ -1,5 +1,6 @@
 package com.saifun.map.gui;
 
+import com.saifun.map.render.GLDraw;
 import com.saifun.map.waypoints.Waypoint;
 import com.saifun.map.waypoints.WaypointImporter;
 import com.saifun.map.waypoints.WaypointManager;
@@ -55,13 +56,13 @@ public class GuiWaypoints extends GuiScreen {
 
         boolean hasSel = selectedIndex >= 0 && selectedIndex < displayed.size();
 
-        // Row 1: Waypoint actions
-        this.buttonList.add(new GuiButton(1, panelX, bottomY, 62, 20, "+ Add"));
-        GuiButton btnEdit = new GuiButton(2, panelX + 65, bottomY, 54, 20, "Edit");
-        GuiButton btnToggle = new GuiButton(3, panelX + 122, bottomY, 62, 20, "Toggle");
-        GuiButton btnTp = new GuiButton(4, panelX + 187, bottomY, 62, 20, "Teleport");
-        GuiButton btnShare = new GuiButton(5, panelX + 252, bottomY, 62, 20, "Share");
-        GuiButton btnDel = new GuiButton(6, panelX + 317, bottomY, 63, 20, "Delete");
+        // Row 1: Waypoint actions (sleek ModernButtons)
+        this.buttonList.add(new ModernButton(1, panelX, bottomY, 62, 19, "+ Add").setAccent(true));
+        ModernButton btnEdit = new ModernButton(2, panelX + 65, bottomY, 54, 19, "Edit");
+        ModernButton btnToggle = new ModernButton(3, panelX + 122, bottomY, 62, 19, "Toggle");
+        ModernButton btnTp = new ModernButton(4, panelX + 187, bottomY, 62, 19, "Teleport");
+        ModernButton btnShare = new ModernButton(5, panelX + 252, bottomY, 62, 19, "Share");
+        ModernButton btnDel = new ModernButton(6, panelX + 317, bottomY, 63, 19, "Delete");
 
         btnEdit.enabled = hasSel;
         btnToggle.enabled = hasSel;
@@ -76,11 +77,11 @@ public class GuiWaypoints extends GuiScreen {
         this.buttonList.add(btnDel);
 
         // Row 2: Importers, Dimension filter & Done
-        int row2Y = bottomY + 24;
-        this.buttonList.add(new GuiButton(10, panelX, row2Y, 108, 20, "Import JourneyMap"));
-        this.buttonList.add(new GuiButton(11, panelX + 112, row2Y, 92, 20, "Import Xaero"));
-        this.buttonList.add(new GuiButton(12, panelX + 208, row2Y, 96, 20, showAllDimensions ? "Dims: ALL" : "Dims: Current"));
-        this.buttonList.add(new GuiButton(99, panelX + 308, row2Y, 72, 20, "Close"));
+        int row2Y = bottomY + 23;
+        this.buttonList.add(new ModernButton(10, panelX, row2Y, 108, 19, "Import JourneyMap"));
+        this.buttonList.add(new ModernButton(11, panelX + 112, row2Y, 92, 19, "Import Xaero"));
+        this.buttonList.add(new ModernButton(12, panelX + 208, row2Y, 96, 19, showAllDimensions ? "Dims: ALL" : "Dims: Current"));
+        this.buttonList.add(new ModernButton(99, panelX + 308, row2Y, 72, 19, "Close"));
     }
 
     @Override
@@ -199,16 +200,19 @@ public class GuiWaypoints extends GuiScreen {
         int listTop = 42;
         int listBottom = this.height - 62;
 
-        drawRect(panelX - 8, 14, panelX + panelW + 8, this.height - 8, 0xDF0E1218);
-        drawRect(panelX - 8, 14, panelX + panelW + 8, 16, 0xFF3A7BD5);
+        GLDraw.ensureBlend();
+        GLDraw.rect(panelX - 8, 14, panelX + panelW + 8, this.height - 8, 0xE60C1017);
+        GLDraw.rectOutline(panelX - 8, 14, panelX + panelW + 8, this.height - 8, 1.0, 0x88334155);
+        GLDraw.rect(panelX - 8, 14, panelX + panelW + 8, 16, 0xFF3B82F6);
 
         String title = "Saifun's Map — Waypoints (" + displayed.size() + ")";
-        drawCenteredString(this.fontRendererObj, title, this.width / 2, 22, 0xFFF1F5F9);
+        drawCenteredString(this.fontRendererObj, title, this.width / 2, 22, 0xFFF8FAFC);
         if (!statusMessage.isEmpty()) {
             drawCenteredString(this.fontRendererObj, statusMessage, this.width / 2, 32, 0xFF4ADE80);
         }
 
-        drawRect(panelX, listTop, panelX + panelW, listBottom, 0x88090C10);
+        GLDraw.rect(panelX, listTop, panelX + panelW, listBottom, 0x88080B10);
+        GLDraw.rectOutline(panelX, listTop, panelX + panelW, listBottom, 1.0, 0x55334155);
 
         int visible = getVisibleRows();
         int px = mc.thePlayer != null ? MathHelper.floor_double(mc.thePlayer.posX) : 0;
@@ -222,10 +226,10 @@ public class GuiWaypoints extends GuiScreen {
 
             boolean sel = idx == selectedIndex;
             int rowBg = sel ? 0xAA2563EB : (i % 2 == 0 ? 0x44161D29 : 0x22161D29);
-            drawRect(panelX + 1, ry + 1, panelX + panelW - 1, ry + ROW_HEIGHT - 1, rowBg);
+            GLDraw.rect(panelX + 1, ry + 1, panelX + panelW - 1, ry + ROW_HEIGHT - 1, rowBg);
 
             // Color initials badge
-            drawRect(panelX + 5, ry + 4, panelX + 21, ry + 18, wp.getArgb(wp.enabled ? 240 : 90));
+            GLDraw.rect(panelX + 5, ry + 4, panelX + 21, ry + 18, wp.getArgb(wp.enabled ? 240 : 90));
             String init = wp.initials != null ? wp.initials : "W";
             this.fontRendererObj.drawStringWithShadow(init, panelX + 13 - this.fontRendererObj.getStringWidth(init) / 2, ry + 7, 0xFFFFFFFF);
 

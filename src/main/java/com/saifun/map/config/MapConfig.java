@@ -53,17 +53,17 @@ public class MapConfig {
     }
 
     // --- Config schema migration ---
-    public int configVersion = 2;
+    public int configVersion = 3;
 
-    // --- Minimap Display (Minimalist Xaero defaults) ---
+    // --- Minimap Display (Compact, proportional Xaero defaults for 1080p/2K/3x GUI) ---
     public boolean minimapEnabled = true;
     public boolean circularMinimap = false;
-    public int minimapSize = 144;
+    public int minimapSize = 96;
     public Corner minimapCorner = Corner.TOP_RIGHT;
     public int offsetX = 6;
     public int offsetY = 6;
     public boolean lockNorth = false;
-    public float minimapZoom = 1.6f;
+    public float minimapZoom = 1.15f;
     public float minimapOpacity = 1.0f;
     public FrameStyle frameStyle = FrameStyle.XAERO_MODERN;
     public boolean showCompass = true;
@@ -138,16 +138,17 @@ public class MapConfig {
             try (InputStreamReader reader = new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8)) {
                 MapConfig loaded = GSON.fromJson(reader, MapConfig.class);
                 if (loaded != null) {
-                    if (loaded.configVersion < 2) {
-                        // Migrate v1 noisy defaults to clean v2 Xaero minimalism
+                    if (loaded.configVersion < 3) {
+                        // Migrate earlier configs to sleek v2.1 defaults (compact minimap size)
                         loaded.showOreVeinGrid = false;
                         loaded.highlightOreVeinCenter = false;
                         loaded.showInfoBarBackground = false;
                         loaded.alwaysShowWaypointNames = false;
-                        loaded.minimapZoom = 1.6f;
+                        if (loaded.minimapSize >= 140) loaded.minimapSize = 96;
+                        loaded.minimapZoom = 1.15f;
                         loaded.oreVeinGridColor = 0x77F5A623;
                         loaded.oreVeinCenterColor = 0x22F5A623;
-                        loaded.configVersion = 2;
+                        loaded.configVersion = 3;
                     }
                     instance = loaded;
                     instance.clampValues();
@@ -177,8 +178,8 @@ public class MapConfig {
     }
 
     public void clampValues() {
-        if (minimapSize < 80) minimapSize = 80;
-        if (minimapSize > 320) minimapSize = 320;
+        if (minimapSize < 56) minimapSize = 56;
+        if (minimapSize > 260) minimapSize = 260;
         if (minimapZoom < 0.5f) minimapZoom = 0.5f;
         if (minimapZoom > 8.0f) minimapZoom = 8.0f;
         if (minimapOpacity < 0.25f) minimapOpacity = 0.25f;

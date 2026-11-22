@@ -3,6 +3,7 @@ package com.saifun.map.gui;
 import com.saifun.map.ClientProxy;
 import com.saifun.map.SaifunsMapMod;
 import com.saifun.map.config.MapConfig;
+import com.saifun.map.render.GLDraw;
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
 
@@ -52,12 +53,14 @@ public class GuiMapSettings extends GuiScreen {
         int panelX = (this.width - panelW) / 2;
         int panelY = Math.max(24, (this.height - 230) / 2);
 
-        // Top tab bar
+        // Top tab bar (sleek ModernButtons)
         Tab[] tabs = Tab.values();
         int tabW = panelW / tabs.length;
         for (int i = 0; i < tabs.length; i++) {
-            GuiButton tb = new GuiButton(100 + i, panelX + i * tabW, panelY + 24, tabW - 2, 20, tabs[i].title);
-            tb.enabled = tabs[i] != activeTab;
+            boolean isCurrent = tabs[i] == activeTab;
+            ModernButton tb = new ModernButton(100 + i, panelX + i * tabW, panelY + 24, tabW - 2, 18, tabs[i].title)
+                .setSelected(isCurrent);
+            tb.enabled = !isCurrent;
             this.buttonList.add(tb);
         }
 
@@ -65,18 +68,18 @@ public class GuiMapSettings extends GuiScreen {
 
         int cols = 2;
         int colW = (panelW - 14) / cols;
-        int startY = panelY + 52;
+        int startY = panelY + 50;
         for (int i = 0; i < currentOptions.size(); i++) {
             OptionEntry opt = currentOptions.get(i);
             int col = i % cols;
             int row = i / cols;
             int bx = panelX + 4 + col * (colW + 6);
-            int by = startY + row * 24;
-            this.buttonList.add(new GuiButton(200 + i, bx, by, colW, 20, opt.label + ": " + opt.valueSupplier.get()));
+            int by = startY + row * 23;
+            this.buttonList.add(new ModernButton(200 + i, bx, by, colW, 19, opt.label + ": " + opt.valueSupplier.get()));
         }
 
         // Done button
-        this.buttonList.add(new GuiButton(999, panelX + panelW / 2 - 60, panelY + 206, 120, 20, "Done & Save"));
+        this.buttonList.add(new ModernButton(999, panelX + panelW / 2 - 64, panelY + 206, 128, 20, "Done & Save").setAccent(true));
     }
 
     private void populateOptions() {
@@ -90,8 +93,15 @@ public class GuiMapSettings extends GuiScreen {
                     cfg.minimapCorner = vals[(cfg.minimapCorner.ordinal() + 1) % vals.length];
                 });
                 addOption("Size", () -> cfg.minimapSize + "px", () -> {
-                    cfg.minimapSize += 24;
-                    if (cfg.minimapSize > 268) cfg.minimapSize = 100;
+                    int[] sizes = { 64, 80, 96, 112, 128, 148, 176, 208 };
+                    int next = sizes[0];
+                    for (int s : sizes) {
+                        if (s > cfg.minimapSize) {
+                            next = s;
+                            break;
+                        }
+                    }
+                    cfg.minimapSize = next;
                 });
                 addOption("Zoom", () -> String.format("%.1fx", cfg.minimapZoom), () -> {
                     cfg.minimapZoom = cfg.minimapZoom >= 6.0f ? 1.0f : cfg.minimapZoom + 0.5f;
@@ -217,9 +227,11 @@ public class GuiMapSettings extends GuiScreen {
         int panelY = Math.max(24, (this.height - 230) / 2);
 
         // Translucent sleek Xaero-style panel (leaving minimap visible live behind!)
-        drawRect(panelX - 6, panelY - 4, panelX + panelW + 6, panelY + panelH, 0xD80E1218);
-        drawRect(panelX - 6, panelY - 4, panelX + panelW + 6, panelY - 2, 0xFF3A7BD5);
-        drawCenteredString(this.fontRendererObj, "Saifun's Map — Settings", this.width / 2, panelY + 6, 0xFFF1F5F9);
+        GLDraw.ensureBlend();
+        GLDraw.rect(panelX - 6, panelY - 4, panelX + panelW + 6, panelY + panelH, 0xE20C1017);
+        GLDraw.rectOutline(panelX - 6, panelY - 4, panelX + panelW + 6, panelY + panelH, 1.0, 0x88334155);
+        GLDraw.rect(panelX - 6, panelY - 4, panelX + panelW + 6, panelY - 2, 0xFF3B82F6);
+        drawCenteredString(this.fontRendererObj, "Saifun's Map — Settings", this.width / 2, panelY + 6, 0xFFF8FAFC);
 
         super.drawScreen(mouseX, mouseY, partialTicks);
     }

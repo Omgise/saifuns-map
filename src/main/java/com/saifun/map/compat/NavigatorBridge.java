@@ -54,6 +54,17 @@ public class NavigatorBridge implements IGtnhLayerBridge {
     private boolean reflectionReady = false;
     private boolean bootstrapped = false;
 
+    // Recache throttling so dragging at 150 FPS NEVER triggers per-frame database rescans!
+    private int lastFullCx = Integer.MIN_VALUE;
+    private int lastFullCz = Integer.MIN_VALUE;
+    private int lastFullW = -1;
+    private int lastFullH = -1;
+    private long lastFullRecacheMs = 0L;
+
+    private int lastMiniPx = Integer.MIN_VALUE;
+    private int lastMiniPz = Integer.MIN_VALUE;
+    private long lastMiniRecacheMs = 0L;
+
     public NavigatorBridge(com.saifun.map.waypoints.WaypointManager ourWaypoints) {
         this.ourWaypoints = ourWaypoints;
         initReflection();
@@ -274,11 +285,25 @@ public class NavigatorBridge implements IGtnhLayerBridge {
         GL11.glPushMatrix();
         GL11.glScaled(invScale, invScale, 1.0);
 
+        long nowMs = System.currentTimeMillis();
+        boolean movedFar = Math.abs(cX - lastFullCx) >= 24 || Math.abs(cZ - lastFullCz) >= 24
+            || Math.abs(visibleBlocksW - lastFullW) >= 48 || Math.abs(visibleBlocksH - lastFullH) >= 48;
+        boolean shouldRecache = (movedFar && (nowMs - lastFullRecacheMs >= 80L)) || (nowMs - lastFullRecacheMs >= 350L);
+        if (shouldRecache) {
+            lastFullCx = cX;
+            lastFullCz = cZ;
+            lastFullW = visibleBlocksW;
+            lastFullH = visibleBlocksH;
+            lastFullRecacheMs = nowMs;
+        }
+
         for (UniversalLayerRenderer ulr : active) {
             LayerManager lm = findManagerFor(ulr);
             if (lm == null) continue;
             try {
-                lm.recacheFullscreenMap(cX, cZ, visibleBlocksW, visibleBlocksH);
+                if (shouldRecache || lm.forceRefresh) {
+                    lm.recacheFullscreenMap(cX, cZ, visibleBlocksW, visibleBlocksH);
+                }
                 List<UniversalRenderStep<?>> steps = ulr.getRenderSteps();
                 if (steps == null || steps.isEmpty()) continue;
 
@@ -337,11 +362,22 @@ public class NavigatorBridge implements IGtnhLayerBridge {
         GL11.glPushMatrix();
         GL11.glScaled(invScale, invScale, 1.0);
 
+        long nowMs = System.currentTimeMillis();
+        boolean miniShouldRecache = Math.abs(pX - lastMiniPx) >= 12 || Math.abs(pZ - lastMiniPz) >= 12
+            || (nowMs - lastMiniRecacheMs >= 250L);
+        if (miniShouldRecache) {
+            lastMiniPx = pX;
+            lastMiniPz = pZ;
+            lastMiniRecacheMs = nowMs;
+        }
+
         for (UniversalLayerRenderer ulr : active) {
             LayerManager lm = findManagerFor(ulr);
             if (lm == null) continue;
             try {
-                lm.recacheMiniMap(pX, pZ, radius * 2);
+                if (miniShouldRecache || lm.forceRefresh) {
+                    lm.recacheMiniMap(pX, pZ, radius * 2);
+                }
                 List<UniversalRenderStep<?>> steps = ulr.getRenderSteps();
                 if (steps == null || steps.isEmpty()) continue;
 

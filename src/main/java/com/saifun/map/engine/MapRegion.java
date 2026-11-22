@@ -160,31 +160,65 @@ public class MapRegion {
                     if (shading) {
                         int hN = rz > 0 ? surfaceHeight[idx - SIZE] : h;
                         int hW = rx > 0 ? surfaceHeight[idx - 1] : h;
-                        int slope = (h - hN) + (h - hW);
+                        int hNW = (rz > 0 && rx > 0) ? surfaceHeight[idx - SIZE - 1] : h;
+
                         if (wDepth > 0) {
-                            // Water surface is flat; apply only gentle riverbed relief
-                            shade = 1.0f + Math.max(-2, Math.min(2, slope)) * 0.018f;
-                        } else if (slope > 0) {
-                            shade = Math.min(1.15f, 1.0f + Math.min(4, slope) * 0.038f);
-                        } else if (slope < 0) {
-                            shade = Math.max(0.78f, 1.0f + Math.max(-4, slope) * 0.052f);
+                            // Subtle riverbed contour under water + crisp riverbank edge shadow
+                            int bankDrop = Math.max(hN - (h + wDepth), hW - (h + wDepth));
+                            if (bankDrop >= 1) {
+                                shade = Math.max(0.76f, 1.0f - Math.min(4, bankDrop) * 0.06f);
+                            } else {
+                                int subSlope = (h - hN) + (h - hW);
+                                shade = 1.0f + Math.max(-2, Math.min(2, subSlope)) * 0.025f;
+                            }
+                        } else {
+                            // Crisp 3-neighbor directional Xaero topographic relief (NW sunlit, SE shaded)
+                            int slope = (h - hN) * 2 + (h - hW) * 2 + (h - hNW);
+                            if (slope > 0) {
+                                shade = Math.min(1.20f, 1.0f + Math.min(6, slope) * 0.036f);
+                            } else if (slope < 0) {
+                                shade = Math.max(0.64f, 1.0f + Math.max(-6, slope) * 0.058f);
+                            }
+
+                            // Soft 2-pixel drop-shadow cast SE by cliffs, hills, and tree canopies!
+                            int tallShadow = Math.max(hN - h, hW - h);
+                            if (tallShadow >= 2) {
+                                shade *= Math.max(0.76f, 1.0f - Math.min(6, tallShadow) * 0.038f);
+                            } else {
+                                int hN2 = rz > 1 ? surfaceHeight[idx - SIZE * 2] : h;
+                                int hW2 = rx > 1 ? surfaceHeight[idx - 2] : h;
+                                int farDrop = Math.max(hN2 - h, hW2 - h);
+                                if (farDrop >= 4) {
+                                    shade *= 0.89f;
+                                }
+                            }
+
+                            // Subtle elevation gradient so mountain ridges stand out from valleys
+                            shade *= 0.94f + Math.min(1.0f, Math.max(0.0f, (h - 50) / 100.0f)) * 0.14f;
                         }
-                        // Gentle altitude contour gradient (mountains brighter, valleys softly deeper)
-                        shade *= 0.96f + Math.min(1.0f, Math.max(0.0f, (h - 52) / 110.0f)) * 0.10f;
                     }
 
                     int finalRgb = BlockColorResolver.shadeColor(rgb, shade);
 
                     if (wDepth > 0) {
-                        int wCol = waterRgb[idx] != 0 ? waterRgb[idx] : 0x3866D6;
+                        // Crisp Xaero water gradient: bright turquoise-blue shallows -> rich royal/sapphire deep water
+                        int shallowWater = 0x4580DF;
+                        int deepWaterBase = 0x2249A6;
+                        float tDepth = Math.min(1.0f, wDepth / 9.0f);
+                        int wCol = BlockColorResolver.blendColor(shallowWater, deepWaterBase, tDepth);
+                        if (waterRgb[idx] != 0) {
+                            // Preserve subtle biome tint (swamp/river/ocean) without turning grey/lavender
+                            wCol = BlockColorResolver.blendColor(wCol, waterRgb[idx], 0.25f);
+                        }
                         if (waterTrans) {
-                            // Crisp turquoise/blue shallows deepening into rich sapphire (matching modern Xaero!)
-                            float depthFactor = Math.min(0.92f, 0.56f + Math.min(10, wDepth) * 0.036f);
-                            float deepShade = Math.max(0.68f, 1.04f - Math.min(14, wDepth) * 0.025f);
-                            int deepWater = BlockColorResolver.shadeColor(wCol, deepShade);
-                            finalRgb = BlockColorResolver.blendColor(finalRgb, deepWater, depthFactor);
+                            float alpha = Math.min(0.94f, 0.54f + Math.min(10, wDepth) * 0.040f);
+                            finalRgb = BlockColorResolver.blendColor(finalRgb, wCol, alpha);
                         } else {
-                            finalRgb = BlockColorResolver.shadeColor(wCol, Math.max(0.68f, 1.0f - Math.min(14, wDepth) * 0.022f));
+                            finalRgb = wCol;
+                        }
+                        // Re-apply subtle shoreline shadow onto water surface
+                        if (shade < 0.99f) {
+                            finalRgb = BlockColorResolver.shadeColor(finalRgb, shade);
                         }
                     }
 
@@ -253,12 +287,15 @@ public class MapRegion {
             if (caveMode) fullCaveUploadNeeded = false;
             else fullSurfaceUploadNeeded = false;
         } else if (!dirty.isEmpty()) {
-            for (int bit = dirty.nextSetBit(0); bit >= 0; bit = dirty.nextSetBit(bit + 1)) {
+            // Budgeted incremental uploads (max 8 chunks per frame) to guarantee zero drag stutter!
+            int uploaded = 0;
+            for (int bit = dirty.nextSetBit(0); bit >= 0 && uploaded < 8; bit = dirty.nextSetBit(bit + 1)) {
                 int localCx = bit & 31;
                 int localCz = bit >>> 5;
                 uploadChunkRect(pixels, localCx << 4, localCz << 4);
+                dirty.clear(bit);
+                uploaded++;
             }
-            dirty.clear();
         }
 
         return texId;
@@ -411,21 +448,42 @@ public class MapRegion {
                 return false;
             }
             int chunkCount = in.readUnsignedShort();
+            // Decode off-lock so the render thread NEVER blocks during disk I/O!
+            int[] tmpRgb = new int[PIXEL_COUNT];
+            short[] tmpH = new short[PIXEL_COUNT];
+            byte[] tmpWD = new byte[PIXEL_COUNT];
+            int[] tmpWRgb = new int[PIXEL_COUNT];
+            BitSet tmpPop = new BitSet(CHUNKS_PER_SIDE * CHUNKS_PER_SIDE);
+
+            for (int i = 0; i < chunkCount; i++) {
+                int bit = in.readUnsignedShort();
+                if (bit >= 1024) break;
+                int baseX = (bit & 31) << 4;
+                int baseZ = (bit >>> 5) << 4;
+                for (int lz = 0; lz < 16; lz++) {
+                    int rowOff = (baseZ + lz) * SIZE + baseX;
+                    for (int lx = 0; lx < 16; lx++) {
+                        int idx = rowOff + lx;
+                        tmpRgb[idx] = in.readInt();
+                        tmpH[idx] = in.readShort();
+                        tmpWD[idx] = in.readByte();
+                        tmpWRgb[idx] = in.readInt();
+                    }
+                }
+                tmpPop.set(bit);
+            }
+
             synchronized (this) {
-                for (int i = 0; i < chunkCount; i++) {
-                    int bit = in.readUnsignedShort();
-                    if (bit >= 1024) break;
+                for (int bit = tmpPop.nextSetBit(0); bit >= 0; bit = tmpPop.nextSetBit(bit + 1)) {
+                    if (populatedChunks.get(bit)) continue; // Don't overwrite fresher live chunks
                     int baseX = (bit & 31) << 4;
                     int baseZ = (bit >>> 5) << 4;
                     for (int lz = 0; lz < 16; lz++) {
                         int rowOff = (baseZ + lz) * SIZE + baseX;
-                        for (int lx = 0; lx < 16; lx++) {
-                            int idx = rowOff + lx;
-                            surfaceBaseRgb[idx] = in.readInt();
-                            surfaceHeight[idx] = in.readShort();
-                            waterDepth[idx] = in.readByte();
-                            waterRgb[idx] = in.readInt();
-                        }
+                        System.arraycopy(tmpRgb, rowOff, surfaceBaseRgb, rowOff, 16);
+                        System.arraycopy(tmpH, rowOff, surfaceHeight, rowOff, 16);
+                        System.arraycopy(tmpWD, rowOff, waterDepth, rowOff, 16);
+                        System.arraycopy(tmpWRgb, rowOff, waterRgb, rowOff, 16);
                     }
                     populatedChunks.set(bit);
                 }

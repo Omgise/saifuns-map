@@ -99,10 +99,10 @@ public class GuiWorldMap extends GuiScreen {
     private double glideTargetZ;
 
     private boolean dragging = false;
-    private int dragStartMouseX;
-    private int dragStartMouseY;
-    private int prevMouseX;
-    private int prevMouseY;
+    private double dragStartRawX;
+    private double dragStartRawY;
+    private double prevRawX;
+    private double prevRawY;
     private double dragStartCenterX;
     private double dragStartCenterZ;
     private boolean dragMoved = false;
@@ -252,10 +252,10 @@ public class GuiWorldMap extends GuiScreen {
             glidingToTarget = false;
             velX = 0.0;
             velZ = 0.0;
-            dragStartMouseX = mouseX;
-            dragStartMouseY = mouseY;
-            prevMouseX = mouseX;
-            prevMouseY = mouseY;
+            dragStartRawX = getSubpixelMouseX();
+            dragStartRawY = getSubpixelMouseY();
+            prevRawX = dragStartRawX;
+            prevRawY = dragStartRawY;
             dragStartCenterX = centerX;
             dragStartCenterZ = centerZ;
         }
@@ -309,22 +309,15 @@ public class GuiWorldMap extends GuiScreen {
 
     @Override
     protected void mouseClickMove(int mouseX, int mouseY, int clickedMouseButton, long timeSinceLastClick) {
-        if (dragging && clickedMouseButton == 0) {
-            int dx = mouseX - dragStartMouseX;
-            int dy = mouseY - dragStartMouseY;
-            if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
-                dragMoved = true;
-            }
-            double stepX = -(mouseX - prevMouseX) / currentZoom;
-            double stepZ = -(mouseY - prevMouseY) / currentZoom;
-            velX = velX * 0.45 + stepX * 22.0 * 0.55;
-            velZ = velZ * 0.45 + stepZ * 22.0 * 0.55;
-            prevMouseX = mouseX;
-            prevMouseY = mouseY;
+        // Sub-pixel raw mouse polling is handled smoothly every frame inside updateAnimations(dt)!
+    }
 
-            centerX = dragStartCenterX - dx / currentZoom;
-            centerZ = dragStartCenterZ - dy / currentZoom;
-        }
+    private double getSubpixelMouseX() {
+        return (Mouse.getX() * (double) this.width) / Math.max(1.0, (double) this.mc.displayWidth);
+    }
+
+    private double getSubpixelMouseY() {
+        return this.height - (Mouse.getY() * (double) this.height) / Math.max(1.0, (double) this.mc.displayHeight);
     }
 
     @Override
@@ -406,6 +399,32 @@ public class GuiWorldMap extends GuiScreen {
     }
 
     private void updateAnimations(double dt) {
+        // 0. Sub-pixel raw framebuffer mouse dragging (3x smoother at GUI Scale 3x, zero stepping/stutter!)
+        if (dragging) {
+            if (!Mouse.isButtonDown(0)) {
+                dragging = false;
+            } else {
+                double curRawX = getSubpixelMouseX();
+                double curRawY = getSubpixelMouseY();
+                double totalDx = curRawX - dragStartRawX;
+                double totalDy = curRawY - dragStartRawY;
+                if (Math.abs(totalDx) > 2.5 || Math.abs(totalDy) > 2.5) {
+                    dragMoved = true;
+                }
+                if (dragMoved) {
+                    centerX = dragStartCenterX - totalDx / currentZoom;
+                    centerZ = dragStartCenterZ - totalDy / currentZoom;
+                    double safeDt = Math.max(0.004, dt);
+                    double instVx = -((curRawX - prevRawX) / currentZoom) / safeDt;
+                    double instVz = -((curRawY - prevRawY) / currentZoom) / safeDt;
+                    velX = velX * 0.55 + instVx * 0.45;
+                    velZ = velZ * 0.55 + instVz * 0.45;
+                }
+                prevRawX = curRawX;
+                prevRawY = curRawY;
+            }
+        }
+
         // 1. Silky-smooth cursor-anchored exponential zoom
         if (zoomAnimating) {
             double ease = 1.0 - Math.exp(-dt * 15.0);
@@ -489,7 +508,7 @@ public class GuiWorldMap extends GuiScreen {
         double cxScreen = this.width * 0.5;
         double cyScreen = this.height * 0.5;
 
-        if (!contextMenuOpen) {
+        if (!contextMenuOpen && !dragging) {
             gtnhBridge.onMouseMove(mouseX, mouseY);
         }
 
@@ -776,13 +795,17 @@ public class GuiWorldMap extends GuiScreen {
             IconButton b = uiButtons.get(i);
             boolean hover = b.hit(mouseX, mouseY);
 
-            int bg = b.active ? 0xBB2563EB : (hover ? 0xBB1E293B : 0x770B0F15);
-            int border = b.active ? 0xDD60A5FA : (hover ? 0xAA94A3B8 : 0x44475569);
+            // True modern Xaero minimalism: borderless crisp icons at rest, sleek soft pill ONLY on hover/active!
+            if (b.active) {
+                GLDraw.rect(b.x, b.y, b.x + b.size, b.y + b.size, 0xAA2563EB);
+            } else if (hover) {
+                GLDraw.rect(b.x, b.y, b.x + b.size, b.y + b.size, 0x881E293B);
+            }
 
-            GLDraw.rect(b.x, b.y, b.x + b.size, b.y + b.size, bg);
-            GLDraw.rectOutline(b.x, b.y, b.x + b.size, b.y + b.size, 0.8, border);
-
-            drawVectorIcon(b.id, b.x + b.size * 0.5, b.y + b.size * 0.5, b.active || hover ? 0xFFFFFFFF : 0xFFD1D5DB);
+            // Subtle dark drop-shadow behind vector icon so it's readable over bright snow & dark forest alike
+            drawVectorIcon(b.id, b.x + b.size * 0.5 + 0.8, b.y + b.size * 0.5 + 0.8, 0xAA070A0F);
+            int fg = b.active ? 0xFFFFFFFF : (hover ? 0xFFFFFFFF : 0xE6F1F5F9);
+            drawVectorIcon(b.id, b.x + b.size * 0.5, b.y + b.size * 0.5, fg);
 
             if (hover) {
                 hoveredTip = b.tooltip;
@@ -850,16 +873,18 @@ public class GuiWorldMap extends GuiScreen {
             int by = startY + i * (btnSize + gap);
             boolean hover = mouseX >= startX && mouseX <= startX + btnSize && mouseY >= by && mouseY <= by + btnSize;
 
-            int bg = b.active ? 0xCC1D4ED8 : (hover ? 0xBB1E293B : 0x770B0F15);
-            int border = b.active ? 0xEE60A5FA : (hover ? 0xAA94A3B8 : 0x44475569);
-
-            GLDraw.rect(startX, by, startX + btnSize, by + btnSize, bg);
-            GLDraw.rectOutline(startX, by, startX + btnSize, by + btnSize, 0.8, border);
+            // Clean borderless resting state; sleek soft highlight pill on active/hover!
+            if (b.active) {
+                GLDraw.rect(startX, by, startX + btnSize, by + btnSize, 0xAA2563EB);
+                GLDraw.rect(startX, by, startX + 2, by + btnSize, 0xFF93C5FD);
+            } else if (hover) {
+                GLDraw.rect(startX, by, startX + btnSize, by + btnSize, 0x881E293B);
+            }
 
             if (b.icon != null) {
                 GLDraw.ensureBlend();
                 GL11.glEnable(GL11.GL_TEXTURE_2D);
-                GL11.glColor4f(1.0f, 1.0f, 1.0f, b.active ? 1.0f : 0.72f);
+                GL11.glColor4f(1.0f, 1.0f, 1.0f, b.active ? 1.0f : (hover ? 0.95f : 0.78f));
                 Minecraft.getMinecraft().getTextureManager().bindTexture(b.icon);
                 GLDraw.texturedQuad(startX + 3, by + 3, startX + btnSize - 3, by + btnSize - 3, 0, 0, 1, 1);
                 GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
@@ -896,7 +921,7 @@ public class GuiWorldMap extends GuiScreen {
 
     private void renderBottomControls() {
         boolean hasSearch = gtnhBridge.hasActiveSearchBar() && searchField != null;
-        int zoomY = hasSearch ? (this.height - 39) : (this.height - 14);
+        int zoomY = hasSearch ? (this.height - 42) : (this.height - 22);
         String zoomText = String.format("%.2fx", currentZoom);
         GLDraw.drawCenteredText(this.fontRendererObj, zoomText, this.width * 0.5, zoomY, 0.76f, 0xCCECF2F8);
 

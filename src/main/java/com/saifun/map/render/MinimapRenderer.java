@@ -41,8 +41,8 @@ public class MinimapRenderer {
     private final WaypointManager waypointManager;
     private final IGtnhLayerBridge gtnhBridge;
 
-    private float smoothZoom = 1.6f;
-    private float smoothSize = 144.0f;
+    private float smoothZoom = 1.15f;
+    private float smoothSize = 0.0f;
     private boolean enlarged = false;
     private long lastFrameNanos = 0L;
 
