@@ -26,6 +26,7 @@ import org.lwjgl.input.Keyboard;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 
 /**
  * Full bidirectional zero-Mixin bridge into GTNH's ShareWhereIAm mod (sharewhereiam 2.x).
@@ -59,6 +60,8 @@ public final class ShareWhereIAmBridge {
     private static Field fldMarkPlayerName;
     private static Field fldMarkJson;
     private static KeyBinding shareKeyBinding;
+    private static volatile Waypoint pendingFallbackWp = null;
+    private static volatile long pendingFallbackAtMs = 0L;
 
     private ShareWhereIAmBridge() {}
 
@@ -103,7 +106,25 @@ public final class ShareWhereIAmBridge {
                 shareKeyBinding = (KeyBinding) kbField.get(null);
             } catch (Throwable ignored) {}
 
-            // Tap the client-side Netty pipeline right after SimpleIndexedCodec
+            // CRITICAL: When JourneyMap is disabled, ShareWhereIAm.postInit() skips NetworkLoader.load()!
+            // Register ShareWhereIAm's exact packet discriminators (0..3) if not already loaded.
+            if (!journeyMapLoaded) {
+                try {
+                    Class<?> clsNetLoader = Class.forName("com.muxiu1997.sharewhereiam.loader.NetworkLoader");
+                    Field nextIdField = clsNetLoader.getDeclaredField("nextID");
+                    nextIdField.setAccessible(true);
+                    int nextId = nextIdField.getInt(null);
+                    if (nextId == 0) {
+                        Method loadMethod = clsNetLoader.getMethod("load");
+                        loadMethod.invoke(null);
+                        SaifunsMapMod.LOG.info("Activated ShareWhereIAm network discriminators (JourneyMap disabled).");
+                    }
+                } catch (Throwable t) {
+                    SaifunsMapMod.LOG.warn("Could not invoke ShareWhereIAm NetworkLoader.load(): {}", t.toString());
+                }
+            }
+
+            // Tap the client-side Netty pipeline right after SimpleIndexedCodec (AFTER NetworkLoader.load!)
             FMLEmbeddedChannel channel = NetworkRegistry.INSTANCE.getChannel(CHANNEL_NAME, Side.CLIENT);
             if (channel != null && channel.pipeline().get(HANDLER_NAME) == null) {
                 String codecName = channel.findChannelHandlerNameForType(SimpleIndexedCodec.class);
@@ -159,11 +180,30 @@ public final class ShareWhereIAmBridge {
             );
             Object pw = ctorPlayerWaypoint.newInstance(player, sw);
             Object msg = ctorMsgShare.newInstance(pw, extraInfo != null ? extraInfo : "");
+            pendingFallbackWp = wp;
+            pendingFallbackAtMs = System.currentTimeMillis() + 1200L;
             network.sendToServer((cpw.mods.fml.common.network.simpleimpl.IMessage) msg);
             return true;
         } catch (Throwable t) {
-            SaifunsMapMod.LOG.debug("ShareWhereIAm shareWaypoint failed: {}", t.toString());
+            pendingFallbackWp = null;
+            SaifunsMapMod.LOG.warn("ShareWhereIAm shareWaypoint failed, falling back to chat: {}", t.toString());
             return false;
+        }
+    }
+
+    /**
+     * Called each client tick: if a multiplayer server did not echo back MessageShareWaypoint
+     * within 1.2s (e.g., server has JourneyMap disabled so ShareWhereIAm server handler wasn't registered),
+     * automatically fall back to plain chat format (which also generates clickable buttons locally!).
+     */
+    public static void onClientTick() {
+        Waypoint fb = pendingFallbackWp;
+        if (fb != null && System.currentTimeMillis() >= pendingFallbackAtMs) {
+            pendingFallbackWp = null;
+            Minecraft mc = Minecraft.getMinecraft();
+            if (mc.thePlayer != null) {
+                mc.thePlayer.sendChatMessage(fb.formatChatShare());
+            }
         }
     }
 
@@ -287,6 +327,7 @@ public final class ShareWhereIAmBridge {
             if (!journeyMapLoaded && msg != null) {
                 try {
                     if (clsMsgShare != null && clsMsgShare.isInstance(msg)) {
+                        pendingFallbackWp = null; // Server echoed the packet — no chat fallback needed!
                         final String sender = (String) fldSharePlayerName.get(msg);
                         final String json = (String) fldShareJson.get(msg);
                         final String extra = (String) fldShareExtra.get(msg);

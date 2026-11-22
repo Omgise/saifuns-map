@@ -101,6 +101,7 @@ public class GuiWorldMap extends GuiScreen {
     private double glideTargetZ;
 
     private boolean dragging = false;
+    private boolean pendingSingleClick = false;
     private double dragStartRawX;
     private double dragStartRawY;
     private double prevRawX;
@@ -125,9 +126,9 @@ public class GuiWorldMap extends GuiScreen {
     private boolean contextMenuOpen = false;
     private int contextMenuX;
     private int contextMenuY;
-    private int contextBlockX;
-    private int contextBlockZ;
-    private Waypoint contextTargetWaypoint = null;
+    private int contextMenuW = 148;
+    private int contextGtnhCount = 0;
+    private final List<IGtnhLayerBridge.ContextAction> contextMenuActions = new ArrayList<>();
     private Waypoint lastHoveredWaypoint = null;
 
     // GTNH Navigator search bar
@@ -255,18 +256,43 @@ public class GuiWorldMap extends GuiScreen {
         }
 
         if (mouseButton == 1) {
-            contextMenuOpen = true;
-            contextMenuX = Math.min(mouseX, this.width - 134);
-            contextMenuY = Math.min(mouseY, this.height - 114);
-            contextBlockX = MathHelper.floor_double(screenToWorldX(mouseX));
-            contextBlockZ = MathHelper.floor_double(screenToWorldZ(mouseY));
-            contextTargetWaypoint = lastHoveredWaypoint != null ? lastHoveredWaypoint : gtnhBridge.getHoveredShareWaypoint();
+            openContextMenu(mouseX, mouseY);
             return;
         }
 
         if (mouseButton == 0) {
+            long now = System.currentTimeMillis();
+            boolean isDoubleClick = (now - lastLeftClickMs < 450L)
+                && Math.abs(mouseX - lastClickX) < 10
+                && Math.abs(mouseY - lastClickY) < 10;
+
+            if (isDoubleClick) {
+                lastLeftClickMs = 0L;
+                dragging = false;
+                dragMoved = false;
+                pendingSingleClick = false;
+                velX = 0.0;
+                velZ = 0.0;
+
+                int bx = MathHelper.floor_double(screenToWorldX(mouseX));
+                int bz = MathHelper.floor_double(screenToWorldZ(mouseY));
+                if (gtnhBridge.onMapClick(true, mouseX, mouseY, bx, bz)) {
+                    return;
+                }
+                if (mc.theWorld != null) {
+                    int y = estimateSurfaceY(bx, bz);
+                    mc.displayGuiScreen(new GuiWaypointEdit(this, waypointManager, null, bx, y, bz, mc.theWorld.provider.dimensionId));
+                }
+                return;
+            }
+
+            lastLeftClickMs = now;
+            lastClickX = mouseX;
+            lastClickY = mouseY;
+
             dragging = true;
             dragMoved = false;
+            pendingSingleClick = true;
             zoomAnimating = false;
             glidingToTarget = false;
             velX = 0.0;
@@ -278,6 +304,75 @@ public class GuiWorldMap extends GuiScreen {
             dragStartCenterX = centerX;
             dragStartCenterZ = centerZ;
         }
+    }
+
+    private void openContextMenu(int mouseX, int mouseY) {
+        final int bx = MathHelper.floor_double(screenToWorldX(mouseX));
+        final int bz = MathHelper.floor_double(screenToWorldZ(mouseY));
+        final int by = estimateSurfaceY(bx, bz);
+        final Waypoint targetWp = lastHoveredWaypoint != null ? lastHoveredWaypoint : gtnhBridge.getHoveredShareWaypoint();
+
+        contextMenuActions.clear();
+
+        // 1. Contextual GTNH Navigator actions (Track/Untrack Vein, Toggle Depleted, Claim/Load/Unclaim Chunk)
+        List<IGtnhLayerBridge.ContextAction> navActions = gtnhBridge.getContextActions(mouseX, mouseY, bx, bz);
+        contextMenuActions.addAll(navActions);
+        contextGtnhCount = navActions.size();
+
+        // 2. Standard map actions
+        String shareLabel = targetWp != null ? "Share Point" : "Share Location";
+        contextMenuActions.add(new IGtnhLayerBridge.ContextAction(shareLabel, () -> {
+            if (targetWp != null) {
+                WaypointManager.shareInChat(targetWp);
+            } else if (mc.theWorld != null) {
+                String label = mc.thePlayer != null ? mc.thePlayer.getDisplayName() : "Shared Point";
+                Waypoint shared = new Waypoint(
+                    label, null, bx, by, bz,
+                    mc.theWorld.provider.dimensionId, WaypointManager.pickRandomColor(), Waypoint.Type.NORMAL
+                );
+                WaypointManager.shareInChat(shared);
+            }
+        }));
+
+        contextMenuActions.add(new IGtnhLayerBridge.ContextAction("Add Waypoint Here", () -> {
+            if (mc.theWorld != null) {
+                mc.displayGuiScreen(new GuiWaypointEdit(this, waypointManager, null, bx, by, bz, mc.theWorld.provider.dimensionId));
+            }
+        }));
+
+        contextMenuActions.add(new IGtnhLayerBridge.ContextAction("Teleport Here (/tp)", () -> {
+            WaypointManager.teleportTo(bx, by, bz);
+            mc.displayGuiScreen(null);
+        }));
+
+        contextMenuActions.add(new IGtnhLayerBridge.ContextAction("Copy Coordinates", () -> {
+            try {
+                String coords = bx + " " + by + " " + bz;
+                Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(coords), null);
+                if (mc.thePlayer != null) {
+                    mc.thePlayer.addChatMessage(new ChatComponentText("\u00a7b[Saifun's Map]\u00a7r Copied: " + coords));
+                }
+            } catch (Throwable ignored) {}
+        }));
+
+        contextMenuActions.add(new IGtnhLayerBridge.ContextAction("Center on Player", () -> {
+            if (mc.thePlayer != null) {
+                glideTargetX = mc.thePlayer.posX;
+                glideTargetZ = mc.thePlayer.posZ;
+                glidingToTarget = true;
+            }
+        }));
+
+        int maxW = 132;
+        for (int i = 0; i < contextMenuActions.size(); i++) {
+            int tw = this.fontRendererObj.getStringWidth(contextMenuActions.get(i).label) + 18;
+            if (tw > maxW) maxW = tw;
+        }
+        contextMenuW = maxW;
+        int totalH = contextMenuActions.size() * 18 + 6 + (contextGtnhCount > 0 ? 4 : 0);
+        contextMenuX = Math.max(4, Math.min(mouseX, this.width - contextMenuW - 4));
+        contextMenuY = Math.max(4, Math.min(mouseY, this.height - totalH - 4));
+        contextMenuOpen = true;
     }
 
     private boolean handleUiIconClick(int mouseX, int mouseY) {
@@ -345,34 +440,17 @@ public class GuiWorldMap extends GuiScreen {
     @Override
     protected void mouseMovedOrUp(int mouseX, int mouseY, int state) {
         super.mouseMovedOrUp(mouseX, mouseY, state);
-        if (state == 0 && dragging) {
+        if (state == 0) {
+            boolean wasSingle = pendingSingleClick && !dragMoved;
             dragging = false;
-            if (!dragMoved) {
+            dragMoved = false;
+            pendingSingleClick = false;
+            if (wasSingle) {
                 velX = 0.0;
                 velZ = 0.0;
-                long now = System.currentTimeMillis();
-                boolean isDoubleClick = (now - lastLeftClickMs < 400L)
-                    && Math.abs(mouseX - lastClickX) < 8
-                    && Math.abs(mouseY - lastClickY) < 8;
-                if (isDoubleClick) {
-                    lastLeftClickMs = 0L;
-                } else {
-                    lastLeftClickMs = now;
-                    lastClickX = mouseX;
-                    lastClickY = mouseY;
-                }
-
                 int bx = MathHelper.floor_double(screenToWorldX(mouseX));
                 int bz = MathHelper.floor_double(screenToWorldZ(mouseY));
-
-                if (gtnhBridge.onMapClick(isDoubleClick, mouseX, mouseY, bx, bz)) {
-                    return;
-                }
-
-                if (isDoubleClick && mc.theWorld != null) {
-                    int y = estimateSurfaceY(bx, bz);
-                    mc.displayGuiScreen(new GuiWaypointEdit(this, waypointManager, null, bx, y, bz, mc.theWorld.provider.dimensionId));
-                }
+                gtnhBridge.onMapClick(false, mouseX, mouseY, bx, bz);
             }
         }
     }
@@ -1099,79 +1177,56 @@ public class GuiWorldMap extends GuiScreen {
     }
 
     private void renderContextMenu(int mouseX, int mouseY) {
-        String shareLabel = contextTargetWaypoint != null ? "Share Point" : "Share Location";
-        String[] items = {
-            "Add Waypoint Here",
-            shareLabel,
-            "Teleport Here (/tp)",
-            "Copy Coordinates",
-            "Center on Player"
-        };
-        int w = 128;
-        int h = items.length * 18 + 6;
+        int count = contextMenuActions.size();
+        if (count == 0) return;
+        int w = contextMenuW;
+        boolean hasSep = contextGtnhCount > 0 && contextGtnhCount < count;
+        int h = count * 18 + 6 + (hasSep ? 4 : 0);
+
         GLDraw.rect(contextMenuX, contextMenuY, contextMenuX + w, contextMenuY + h, 0xEE0D1117);
         GLDraw.rectOutline(contextMenuX, contextMenuY, contextMenuX + w, contextMenuY + h, 1.0, 0xAA3A7BD5);
 
-        for (int i = 0; i < items.length; i++) {
-            int iy = contextMenuY + 3 + i * 18;
+        int iy = contextMenuY + 3;
+        for (int i = 0; i < count; i++) {
+            if (hasSep && i == contextGtnhCount) {
+                GLDraw.rect(contextMenuX + 6, iy + 1, contextMenuX + w - 6, iy + 2, 0x66475569);
+                iy += 4;
+            }
+            boolean isGtnh = i < contextGtnhCount;
             boolean hover = mouseX >= contextMenuX && mouseX <= contextMenuX + w && mouseY >= iy && mouseY < iy + 18;
             if (hover) {
                 GLDraw.rect(contextMenuX + 2, iy, contextMenuX + w - 2, iy + 17, 0xBB2563EB);
+            } else if (isGtnh) {
+                GLDraw.rect(contextMenuX + 2, iy, contextMenuX + 4.5, iy + 17, 0xCC38BDF8);
             }
-            this.fontRendererObj.drawStringWithShadow(items[i], contextMenuX + 8, iy + 5, 0xFFF1F5F9);
+            int textCol = isGtnh ? (hover ? 0xFFFFFFFF : 0xFF7DD3FC) : 0xFFF1F5F9;
+            this.fontRendererObj.drawStringWithShadow(contextMenuActions.get(i).label, contextMenuX + 9, iy + 5, textCol);
+            iy += 18;
         }
     }
 
     private boolean handleContextMenuClick(int mouseX, int mouseY) {
-        int w = 128;
-        int h = 5 * 18 + 6;
+        int count = contextMenuActions.size();
+        if (count == 0) return false;
+        int w = contextMenuW;
+        boolean hasSep = contextGtnhCount > 0 && contextGtnhCount < count;
+        int h = count * 18 + 6 + (hasSep ? 4 : 0);
         if (mouseX < contextMenuX || mouseX > contextMenuX + w || mouseY < contextMenuY || mouseY > contextMenuY + h) {
             return false;
         }
-        int idx = (mouseY - (contextMenuY + 3)) / 18;
-        int y = estimateSurfaceY(contextBlockX, contextBlockZ);
 
-        switch (idx) {
-            case 0:
-                if (mc.theWorld != null) {
-                    mc.displayGuiScreen(new GuiWaypointEdit(this, waypointManager, null, contextBlockX, y, contextBlockZ, mc.theWorld.provider.dimensionId));
-                }
+        int iy = contextMenuY + 3;
+        for (int i = 0; i < count; i++) {
+            if (hasSep && i == contextGtnhCount) {
+                iy += 4;
+            }
+            if (mouseY >= iy && mouseY < iy + 18) {
+                contextMenuActions.get(i).run.run();
                 return true;
-            case 1:
-                if (contextTargetWaypoint != null) {
-                    WaypointManager.shareInChat(contextTargetWaypoint);
-                } else if (mc.theWorld != null) {
-                    String label = mc.thePlayer != null ? mc.thePlayer.getDisplayName() : "Shared Point";
-                    Waypoint shared = new Waypoint(
-                        label, null, contextBlockX, y, contextBlockZ,
-                        mc.theWorld.provider.dimensionId, WaypointManager.pickRandomColor(), Waypoint.Type.NORMAL
-                    );
-                    WaypointManager.shareInChat(shared);
-                }
-                return true;
-            case 2:
-                WaypointManager.teleportTo(contextBlockX, y, contextBlockZ);
-                mc.displayGuiScreen(null);
-                return true;
-            case 3:
-                try {
-                    String coords = contextBlockX + " " + y + " " + contextBlockZ;
-                    Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(coords), null);
-                    if (mc.thePlayer != null) {
-                        mc.thePlayer.addChatMessage(new ChatComponentText("\u00a7b[Saifun's Map]\u00a7r Copied: " + coords));
-                    }
-                } catch (Throwable ignored) {}
-                return true;
-            case 4:
-                if (mc.thePlayer != null) {
-                    glideTargetX = mc.thePlayer.posX;
-                    glideTargetZ = mc.thePlayer.posZ;
-                    glidingToTarget = true;
-                }
-                return true;
-            default:
-                return false;
+            }
+            iy += 18;
         }
+        return false;
     }
 
     private int estimateSurfaceY(int bx, int bz) {

@@ -660,6 +660,100 @@ public class NavigatorBridge implements IGtnhLayerBridge {
         return null;
     }
 
+    @Override
+    public List<ContextAction> getContextActions(int mouseX, int mouseY, int blockX, int blockZ) {
+        List<ContextAction> actions = new ArrayList<>();
+        if (!isAvailable() || !MapConfig.get().showNavigatorOnWorldMap || hoveredStepField == null) return actions;
+
+        onMouseMove(mouseX, mouseY);
+        int sf = getGuiScaleFactor();
+        final int rawX = mouseX * sf;
+        final int rawY = mouseY * sf;
+
+        List<UniversalLayerRenderer> active = collectActiveRenderersSorted();
+
+        // 1. Point interactable targets (VisualProspecting Ore Veins, Thaumcraft Nodes, etc.)
+        for (int i = active.size() - 1; i >= 0; i--) {
+            UniversalLayerRenderer ulr = active.get(i);
+            if (!(ulr instanceof UniversalInteractableRenderer)) continue;
+            final LayerManager lm = findManagerFor(ulr);
+            try {
+                Object hoveredObj = hoveredStepField.get(ulr);
+                if (hoveredObj instanceof UniversalInteractableStep) {
+                    final UniversalInteractableStep<?> step = (UniversalInteractableStep<?>) hoveredObj;
+                    ILocationProvider loc = step.getLocation();
+                    String stepName = step.getClass().getSimpleName();
+                    boolean isOreVein = stepName.contains("OreVein");
+
+                    if (loc instanceof IWaypointAndLocationProvider) {
+                        boolean tracked = ((IWaypointAndLocationProvider) loc).isActiveAsWaypoint();
+                        String trackLabel = tracked
+                            ? (isOreVein ? "Untrack Vein" : "Untrack Target")
+                            : (isOreVein ? "Track Vein (Beacon)" : "Track Target (Beacon)");
+                        actions.add(new ContextAction(trackLabel, () -> {
+                            try {
+                                ((UniversalInteractableRenderer) ulr).setRenderStepHover(step);
+                                ((InteractableLayer) ulr).onMapClick(true, rawX, rawY, blockX, blockZ);
+                                if (lm != null) lm.forceRefresh();
+                                lastFullRecacheMs = 0L;
+                            } catch (Throwable ignored) {}
+                        }));
+                    }
+
+                    String actionLabel = isOreVein ? "Toggle Depleted (Del)" : "Toggle Mark (Del)";
+                    actions.add(new ContextAction(actionLabel, () -> {
+                        try {
+                            step.onActionKeyPressed();
+                            if (lm != null) lm.forceRefresh();
+                            lastFullRecacheMs = 0L;
+                        } catch (Throwable ignored) {}
+                    }));
+                }
+            } catch (Throwable ignored) {}
+        }
+
+        // 2. ServerUtilities Claims layer (Claim / Toggle Chunkload / Unclaim)
+        for (int i = active.size() - 1; i >= 0; i--) {
+            UniversalLayerRenderer ulr = active.get(i);
+            if (!(ulr instanceof UniversalInteractableRenderer)) continue;
+            final LayerManager lm = findManagerFor(ulr);
+            if (lm == null || !lm.getClass().getSimpleName().contains("Claims")) continue;
+
+            try {
+                Object hoveredObj = hoveredStepField.get(ulr);
+                if (hoveredObj instanceof UniversalLocationInteractableStep) {
+                    final UniversalLocationInteractableStep<?> step = (UniversalLocationInteractableStep<?>) hoveredObj;
+                    actions.add(new ContextAction("Toggle Chunk Load", () -> {
+                        try {
+                            ((UniversalInteractableRenderer) ulr).setRenderStepHover(step);
+                            ((InteractableLayer) ulr).onMapClick(true, rawX, rawY, blockX, blockZ);
+                            lm.forceRefresh();
+                            lastFullRecacheMs = 0L;
+                        } catch (Throwable ignored) {}
+                    }));
+                    actions.add(new ContextAction("Unclaim Chunk (Del)", () -> {
+                        try {
+                            step.onActionKeyPressed();
+                            lm.forceRefresh();
+                            lastFullRecacheMs = 0L;
+                        } catch (Throwable ignored) {}
+                    }));
+                } else {
+                    actions.add(new ContextAction("Claim Chunk", () -> {
+                        try {
+                            ((UniversalInteractableRenderer) ulr).clearRenderStepHover();
+                            ((InteractableLayer) ulr).onMapClick(true, rawX, rawY, blockX, blockZ);
+                            lm.forceRefresh();
+                            lastFullRecacheMs = 0L;
+                        } catch (Throwable ignored) {}
+                    }));
+                }
+            } catch (Throwable ignored) {}
+        }
+
+        return actions;
+    }
+
     private List<UniversalLayerRenderer> collectActiveRenderersSorted() {
         if (!activeCacheDirty) {
             return activeRenderersCache;

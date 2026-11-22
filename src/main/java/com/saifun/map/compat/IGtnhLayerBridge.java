@@ -26,6 +26,16 @@ public interface IGtnhLayerBridge {
         }
     }
 
+    final class ContextAction {
+        public final String label;
+        public final Runnable run;
+
+        public ContextAction(String label, Runnable run) {
+            this.label = label;
+            this.run = run;
+        }
+    }
+
     boolean isAvailable();
 
     boolean hasActiveLayers();
@@ -74,4 +84,10 @@ public interface IGtnhLayerBridge {
      * (e.g. VisualProspecting Ore Vein or Thaumcraft Node), or null if none is hovered.
      */
     com.saifun.map.waypoints.Waypoint getHoveredShareWaypoint();
+
+    /**
+     * Returns right-click context menu actions for the hovered GTNH Navigator element or active layer
+     * (e.g. Track/Untrack Vein, Toggle Depleted, Claim Chunk, Toggle Chunk Load, Unclaim Chunk).
+     */
+    List<ContextAction> getContextActions(int mouseX, int mouseY, int blockX, int blockZ);
 }

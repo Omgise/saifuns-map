@@ -85,6 +85,7 @@ public class ClientEventHandler {
         }
         chunkScanner.onClientTick();
         waypointManager.onClientTick();
+        ShareWhereIAmBridge.onClientTick();
     }
 
     @SubscribeEvent

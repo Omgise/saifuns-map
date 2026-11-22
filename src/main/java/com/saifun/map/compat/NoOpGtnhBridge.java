@@ -63,4 +63,9 @@ public final class NoOpGtnhBridge implements IGtnhLayerBridge {
 
     @Override
     public com.saifun.map.waypoints.Waypoint getHoveredShareWaypoint() { return null; }
+
+    @Override
+    public List<ContextAction> getContextActions(int mouseX, int mouseY, int blockX, int blockZ) {
+        return Collections.emptyList();
+    }
 }

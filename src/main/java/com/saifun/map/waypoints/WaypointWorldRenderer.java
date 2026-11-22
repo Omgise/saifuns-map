@@ -94,8 +94,8 @@ public class WaypointWorldRenderer {
                     boolean showFullLabel = priority
                         || (dimmedByTarget ? focused : (cfg.alwaysShowWaypointNames || focused || dist < 24.0));
 
-                    if (cfg.showWaypointBeam && dist > 6.0 && (priority || (!dimmedByTarget && (focused || dist < 200.0)))) {
-                        renderBeam(wx - camX, -camY, wz - camZ, wp.color);
+                    if ((priority && dist > 3.0) || (cfg.showWaypointBeam && dist > 6.0 && !dimmedByTarget && (focused || dist < 200.0))) {
+                        renderBeam(wx - camX, -camY, wz - camZ, wp.color, priority);
                     }
 
                     // Project onto fixed depth sphere (48 blocks) for crisp, zero-jitter constant screen pixel size
@@ -190,7 +190,7 @@ public class WaypointWorldRenderer {
         return ((int) Math.round(dist)) + "m";
     }
 
-    private static void renderBeam(double rx, double baseY, double rz, int color) {
+    private static void renderBeam(double rx, double baseY, double rz, int color, boolean priority) {
         GL11.glEnable(GL11.GL_DEPTH_TEST);
         GL11.glDepthMask(false);
         GLDraw.ensureBlend();
@@ -199,20 +199,31 @@ public class WaypointWorldRenderer {
         float r = ((color >>> 16) & 0xFF) / 255.0f;
         float g = ((color >>> 8) & 0xFF) / 255.0f;
         float b = (color & 0xFF) / 255.0f;
-        double hw = 0.14;
 
-        GL11.glColor4f(r, g, b, 0.22f);
+        if (priority) {
+            // Sleek two-layer tactical beacon column: soft colored outer glow + crisp bright inner core
+            drawCrossBeam(rx, baseY, rz, 0.36, r, g, b, 0.24f);
+            drawCrossBeam(rx, baseY, rz, 0.14, Math.min(1.0f, r * 0.65f + 0.35f), Math.min(1.0f, g * 0.65f + 0.35f), Math.min(1.0f, b * 0.65f + 0.35f), 0.56f);
+        } else {
+            drawCrossBeam(rx, baseY, rz, 0.14, r, g, b, 0.22f);
+        }
+
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    }
+
+    private static void drawCrossBeam(double rx, double baseY, double rz, double hw, float r, float g, float b, float alpha) {
+        GL11.glColor4f(r, g, b, alpha);
         GL11.glBegin(GL11.GL_QUADS);
         GL11.glVertex3d(rx - hw, baseY, rz);
         GL11.glVertex3d(rx + hw, baseY, rz);
         GL11.glVertex3d(rx + hw, baseY + 256.0, rz);
         GL11.glVertex3d(rx - hw, baseY + 256.0, rz);
+
         GL11.glVertex3d(rx, baseY, rz - hw);
         GL11.glVertex3d(rx, baseY, rz + hw);
         GL11.glVertex3d(rx, baseY + 256.0, rz + hw);
         GL11.glVertex3d(rx, baseY + 256.0, rz - hw);
         GL11.glEnd();
-        GL11.glEnable(GL11.GL_TEXTURE_2D);
-        GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
     }
 }
