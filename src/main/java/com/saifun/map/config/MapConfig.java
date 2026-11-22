@@ -97,6 +97,7 @@ public class MapConfig {
     public boolean alwaysShowWaypointNames = false; // Show name on crosshair focus / close range
     public boolean showWaypointBeam = false;
     public boolean autoDeathWaypoints = true;
+    public boolean autoLinkNetherPortals = true;
     public int maxWaypointRenderDistance = 10000;
     public float waypointScale = 1.0f;
 

@@ -7,6 +7,20 @@ import java.util.UUID;
  */
 public class Waypoint {
 
+    public static final String GROUP_DEFAULT = "Default";
+    public static final String GROUP_BASE = "Base";
+    public static final String GROUP_ORES = "Ores";
+    public static final String GROUP_LOOT = "Loot";
+    public static final String GROUP_DEATHS = "Deaths";
+
+    public static final String[] PRESET_GROUPS = {
+        GROUP_DEFAULT,
+        GROUP_BASE,
+        GROUP_ORES,
+        GROUP_LOOT,
+        GROUP_DEATHS
+    };
+
     public enum Type {
         NORMAL,
         DEATH,
@@ -57,9 +71,12 @@ public class Waypoint {
     public boolean temporary = false;
     public Type type = Type.NORMAL;
     public IconType icon = IconType.PIN;
+    public String group = GROUP_DEFAULT;
+    public boolean linkNether = false;
     public long createdAt;
     public transient long expiresAt = 0L;
     public transient CustomIconDrawer customIconDrawer = null;
+    public transient boolean projectedCrossDim = false;
 
     public Waypoint() {}
 
@@ -74,6 +91,7 @@ public class Waypoint {
         this.color = color & 0xFFFFFF;
         this.type = type != null ? type : Type.NORMAL;
         this.icon = (this.type == Type.DEATH) ? IconType.DEATH : IconType.PIN;
+        this.group = (this.type == Type.DEATH) ? GROUP_DEATHS : GROUP_DEFAULT;
         this.enabled = true;
         this.createdAt = System.currentTimeMillis();
     }
@@ -81,6 +99,26 @@ public class Waypoint {
     public IconType getEffectiveIcon() {
         if (icon != null) return icon;
         return type == Type.DEATH ? IconType.DEATH : IconType.PIN;
+    }
+
+    public String getEffectiveGroup() {
+        if (group != null && !group.trim().isEmpty()) {
+            return group.trim();
+        }
+        return type == Type.DEATH ? GROUP_DEATHS : GROUP_DEFAULT;
+    }
+
+    public static String normalizeGroup(String raw, Type type) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return type == Type.DEATH ? GROUP_DEATHS : GROUP_DEFAULT;
+        }
+        String trimmed = raw.trim();
+        for (String preset : PRESET_GROUPS) {
+            if (preset.equalsIgnoreCase(trimmed)) {
+                return preset;
+            }
+        }
+        return trimmed.length() > 20 ? trimmed.substring(0, 20) : trimmed;
     }
 
     public static String normalizeInitials(String initials, String fallbackName) {

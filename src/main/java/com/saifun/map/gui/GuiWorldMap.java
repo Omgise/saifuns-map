@@ -384,16 +384,18 @@ public class GuiWorldMap extends GuiScreen {
                 contextMenuActions.add(new IGtnhLayerBridge.ContextAction(Lang.tr("saifunsmap.context.wp_share"), () -> {
                     WaypointManager.shareInChat(wp);
                 }));
-                contextMenuActions.add(new IGtnhLayerBridge.ContextAction(Lang.tr("saifunsmap.context.wp_remove_beacon"), true, () -> {
-                    if (wp.type == Waypoint.Type.NAVIGATOR && wp.id != null && wp.id.startsWith("nav:")) {
-                        String tagKey = wp.id.substring(4);
-                        gtnhBridge.clearActiveWaypoint(tagKey);
-                        waypointManager.clearNavigatorWaypoints(tagKey);
-                    } else {
-                        waypointManager.removeWaypoint(wp);
-                    }
-                    if (lastHoveredWaypoint == wp) lastHoveredWaypoint = null;
-                }));
+                if (!wp.projectedCrossDim) {
+                    contextMenuActions.add(new IGtnhLayerBridge.ContextAction(Lang.tr("saifunsmap.context.wp_remove_beacon"), true, () -> {
+                        if (wp.type == Waypoint.Type.NAVIGATOR && wp.id != null && wp.id.startsWith("nav:")) {
+                            String tagKey = wp.id.substring(4);
+                            gtnhBridge.clearActiveWaypoint(tagKey);
+                            waypointManager.clearNavigatorWaypoints(tagKey);
+                        } else {
+                            waypointManager.removeWaypoint(wp);
+                        }
+                        if (lastHoveredWaypoint == wp) lastHoveredWaypoint = null;
+                    }));
+                }
             }
         }
 
@@ -872,10 +874,13 @@ public class GuiWorldMap extends GuiScreen {
                         if (focusMode && !navTip.isEmpty()) {
                             drawHoveringText(navTip, mouseX, mouseY, this.fontRendererObj);
                         } else if (hoveredWp != null) {
-                            List<String> tip = Arrays.asList(
-                                "\u00a7f\u00a7l" + hoveredWp.name,
-                                String.format("\u00a77X: %d  Y: %d  Z: %d (Dim %d)", hoveredWp.x, hoveredWp.y, hoveredWp.z, hoveredWp.dimensionId)
-                            );
+                            List<String> tip = new ArrayList<>();
+                            tip.add("\u00a7f\u00a7l" + hoveredWp.name);
+                            if (!Waypoint.GROUP_DEFAULT.equalsIgnoreCase(hoveredWp.getEffectiveGroup())) {
+                                tip.add("\u00a7b[" + GuiWaypoints.localizeGroup(hoveredWp.getEffectiveGroup()) + "]");
+                            }
+                            tip.add(String.format("\u00a77X: %d  Y: %d  Z: %d (%s)",
+                                hoveredWp.x, hoveredWp.y, hoveredWp.z, Lang.tr("saifunsmap.common.dim", hoveredWp.dimensionId)));
                             drawHoveringText(tip, mouseX, mouseY, this.fontRendererObj);
                         } else if (!navTip.isEmpty()) {
                             drawHoveringText(navTip, mouseX, mouseY, this.fontRendererObj);

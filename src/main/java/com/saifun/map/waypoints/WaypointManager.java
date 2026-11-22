@@ -33,10 +33,14 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -63,6 +67,7 @@ public class WaypointManager {
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Type LIST_TYPE = new TypeToken<List<Waypoint>>() {}.getType();
+    private static final Type STRING_SET_TYPE = new TypeToken<Set<String>>() {}.getType();
     private static final Random RANDOM = new Random();
 
     // Parses standard GTNH JourneyMap shared waypoints (including commas/parens inside quotes):
@@ -73,6 +78,7 @@ public class WaypointManager {
 
     private final MapWorldCache worldCache;
     private final List<Waypoint> waypoints = new ArrayList<>();
+    private final Set<String> hiddenGroupsLower = new HashSet<>();
     private volatile Map<Integer, List<Waypoint>> dimCache = Collections.emptyMap();
     private volatile String loadedWorldId = null;
     private boolean wasDeadLastTick = false;
@@ -81,20 +87,134 @@ public class WaypointManager {
         this.worldCache = worldCache;
     }
 
+    public synchronized void refreshRenderCache() {
+        rebuildDimCache();
+    }
+
     private void rebuildDimCache() {
         if (waypoints.isEmpty()) {
             dimCache = Collections.emptyMap();
             return;
         }
+        boolean autoLinkPortals = MapConfig.get().autoLinkNetherPortals;
         Map<Integer, List<Waypoint>> map = new HashMap<>();
+
         for (int i = 0; i < waypoints.size(); i++) {
             Waypoint wp = waypoints.get(i);
+            if (!isWaypointVisible(wp)) continue;
+
             map.computeIfAbsent(wp.dimensionId, k -> new ArrayList<>()).add(wp);
+
+            // Auto-project Overworld (0) <-> Nether (-1) at x8 / div8 scale when enabled
+            if (!wp.temporary && (wp.dimensionId == 0 || wp.dimensionId == -1)) {
+                boolean shouldLink = wp.linkNether
+                    || (autoLinkPortals && wp.getEffectiveIcon() == Waypoint.IconType.PORTAL);
+                if (shouldLink) {
+                    int targetDim = (wp.dimensionId == 0) ? -1 : 0;
+                    int px = (targetDim == -1) ? Math.floorDiv(wp.x, 8) : (wp.x * 8);
+                    int pz = (targetDim == -1) ? Math.floorDiv(wp.z, 8) : (wp.z * 8);
+                    String suffix = (targetDim == -1) ? " [\u00f78]" : " [\u00d78]";
+                    Waypoint proj = new Waypoint(
+                        wp.name + suffix,
+                        wp.initials,
+                        px, wp.y, pz,
+                        targetDim,
+                        wp.color,
+                        Waypoint.Type.NORMAL
+                    );
+                    proj.id = "link:" + wp.id;
+                    proj.temporary = true;
+                    proj.projectedCrossDim = true;
+                    proj.icon = wp.getEffectiveIcon();
+                    proj.group = wp.getEffectiveGroup();
+                    proj.linkNether = true;
+                    map.computeIfAbsent(targetDim, k -> new ArrayList<>()).add(proj);
+                }
+            }
         }
         for (Map.Entry<Integer, List<Waypoint>> e : map.entrySet()) {
             e.setValue(Collections.unmodifiableList(e.getValue()));
         }
         dimCache = map;
+    }
+
+    public boolean isGroupEnabled(String group) {
+        if (group == null || group.trim().isEmpty()) return !hiddenGroupsLower.contains("default");
+        return !hiddenGroupsLower.contains(group.trim().toLowerCase(Locale.ROOT));
+    }
+
+    public synchronized void setGroupEnabled(String group, boolean enabled) {
+        ensureLoaded();
+        String key = (group == null || group.trim().isEmpty()) ? "default" : group.trim().toLowerCase(Locale.ROOT);
+        if (enabled) {
+            hiddenGroupsLower.remove(key);
+        } else {
+            hiddenGroupsLower.add(key);
+        }
+        saveGroups();
+        rebuildDimCache();
+    }
+
+    public synchronized boolean toggleGroupEnabled(String group) {
+        boolean next = !isGroupEnabled(group);
+        setGroupEnabled(group, next);
+        return next;
+    }
+
+    public boolean isWaypointVisible(Waypoint wp) {
+        if (wp == null || !wp.enabled) return false;
+        if (wp.type == Waypoint.Type.NAVIGATOR || wp.type == Waypoint.Type.SHARED_BEACON) {
+            return true;
+        }
+        return isGroupEnabled(wp.getEffectiveGroup());
+    }
+
+    public synchronized List<String> getAllGroupNames() {
+        ensureLoaded();
+        LinkedHashSet<String> groups = new LinkedHashSet<>();
+        for (String preset : Waypoint.PRESET_GROUPS) {
+            groups.add(preset);
+        }
+        for (Waypoint wp : waypoints) {
+            if (!wp.temporary) {
+                groups.add(wp.getEffectiveGroup());
+            }
+        }
+        return new ArrayList<>(groups);
+    }
+
+    public synchronized int countDeaths() {
+        ensureLoaded();
+        int count = 0;
+        for (Waypoint wp : waypoints) {
+            if (!wp.temporary && isDeathWaypoint(wp)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    public synchronized int removeAllDeaths() {
+        ensureLoaded();
+        int removed = 0;
+        Iterator<Waypoint> it = waypoints.iterator();
+        while (it.hasNext()) {
+            Waypoint wp = it.next();
+            if (!wp.temporary && isDeathWaypoint(wp)) {
+                it.remove();
+                removed++;
+            }
+        }
+        if (removed > 0) {
+            save();
+        }
+        return removed;
+    }
+
+    public static boolean isDeathWaypoint(Waypoint wp) {
+        if (wp == null) return false;
+        return wp.type == Waypoint.Type.DEATH
+            || Waypoint.GROUP_DEATHS.equalsIgnoreCase(wp.getEffectiveGroup());
     }
 
     public synchronized void ensureLoaded() {
@@ -107,6 +227,7 @@ public class WaypointManager {
     public synchronized void clearSession() {
         save();
         waypoints.clear();
+        hiddenGroupsLower.clear();
         dimCache = Collections.emptyMap();
         loadedWorldId = null;
         wasDeadLastTick = false;
@@ -114,6 +235,7 @@ public class WaypointManager {
 
     private synchronized void loadForWorld(String worldId) {
         waypoints.clear();
+        hiddenGroupsLower.clear();
         loadedWorldId = worldId;
         File file = getWaypointsFile(worldId);
         if (file.exists()) {
@@ -127,6 +249,7 @@ public class WaypointManager {
                             if (wp.icon == null) {
                                 wp.icon = (wp.type == Waypoint.Type.DEATH) ? Waypoint.IconType.DEATH : Waypoint.IconType.PIN;
                             }
+                            wp.group = Waypoint.normalizeGroup(wp.group, wp.type);
                             wp.initials = Waypoint.normalizeInitials(wp.initials, wp.name);
                             waypoints.add(wp);
                         }
@@ -136,7 +259,43 @@ public class WaypointManager {
                 SaifunsMapMod.LOG.warn("Failed to load waypoints from {}: {}", file, e.getMessage());
             }
         }
+        loadGroups(worldId);
         rebuildDimCache();
+    }
+
+    private void loadGroups(String worldId) {
+        File gFile = getGroupsFile(worldId);
+        if (!gFile.exists()) return;
+        try (InputStreamReader reader = new InputStreamReader(new FileInputStream(gFile), StandardCharsets.UTF_8)) {
+            Set<String> loaded = GSON.fromJson(reader, STRING_SET_TYPE);
+            if (loaded != null) {
+                for (String g : loaded) {
+                    if (g != null && !g.trim().isEmpty()) {
+                        hiddenGroupsLower.add(g.trim().toLowerCase(Locale.ROOT));
+                    }
+                }
+            }
+        } catch (Exception e) {
+            SaifunsMapMod.LOG.warn("Failed to load hidden waypoint groups from {}: {}", gFile, e.getMessage());
+        }
+    }
+
+    private void saveGroups() {
+        if (loadedWorldId == null) return;
+        File gFile = getGroupsFile(loadedWorldId);
+        try {
+            File parent = gFile.getParentFile();
+            if (parent != null && !parent.exists()) parent.mkdirs();
+            try (OutputStreamWriter writer = new OutputStreamWriter(new FileOutputStream(gFile), StandardCharsets.UTF_8)) {
+                GSON.toJson(hiddenGroupsLower, STRING_SET_TYPE, writer);
+            }
+        } catch (Exception e) {
+            SaifunsMapMod.LOG.warn("Failed to save hidden waypoint groups to {}: {}", gFile, e.getMessage());
+        }
+    }
+
+    private File getGroupsFile(String worldId) {
+        return new File(new File(worldCache.getDataRoot(), "worlds/" + worldId), "waypoint_groups.json");
     }
 
     public synchronized void save() {
@@ -165,6 +324,20 @@ public class WaypointManager {
     public synchronized List<Waypoint> getAllWaypoints() {
         ensureLoaded();
         return Collections.unmodifiableList(new ArrayList<>(waypoints));
+    }
+
+    /**
+     * Returns real (non-projected) waypoints for management UI (includes disabled & hidden-group waypoints).
+     */
+    public synchronized List<Waypoint> getEditableWaypoints(boolean allDimensions, int currentDim) {
+        ensureLoaded();
+        List<Waypoint> out = new ArrayList<>();
+        for (Waypoint wp : waypoints) {
+            if (wp.projectedCrossDim) continue;
+            if (!allDimensions && wp.dimensionId != currentDim) continue;
+            out.add(wp);
+        }
+        return out;
     }
 
     /**
@@ -333,6 +506,7 @@ public class WaypointManager {
             String deathName = Lang.tr("saifunsmap.waypoint.death_name", timeStr);
             Waypoint death = new Waypoint(deathName, "X", dx, dy, dz, dim, 0xEF4444, Waypoint.Type.DEATH);
             death.icon = Waypoint.IconType.DEATH;
+            death.group = Waypoint.GROUP_DEATHS;
             addWaypoint(death);
             player.addChatMessage(new ChatComponentText(
                 "\u00a7b[Saifun's Map]\u00a7r " + Lang.tr("saifunsmap.chat.death_saved", dx, dy, dz, dim)

@@ -13,13 +13,16 @@ import org.lwjgl.input.Keyboard;
 import java.util.Collections;
 
 /**
- * Sleek modern Add / Edit Waypoint dialog featuring a 12-icon pixel-art picker,
- * full interactive HSV Color Picker, editable #RRGGBB hex code, live icon preview, and 12 quick swatches.
+ * Sleek modern Add / Edit Waypoint dialog featuring:
+ * - Preset & custom waypoint group selector
+ * - Overworld <-> Nether (x8 / div8) cross-dimension link toggle
+ * - 12-icon pixel-art selector
+ * - Full interactive HSV Color Picker + #RRGGBB hex + 12 quick swatches
  */
 public class GuiWaypointEdit extends GuiScreen {
 
     private static final int PANEL_W = 296;
-    private static final int PANEL_H = 268;
+    private static final int PANEL_H = 274;
 
     private final GuiScreen parent;
     private final WaypointManager manager;
@@ -28,7 +31,7 @@ public class GuiWaypointEdit extends GuiScreen {
     private final int defaultX, defaultY, defaultZ, defaultDim;
 
     private GuiTextField nameField;
-    private GuiTextField initialsField;
+    private GuiTextField groupField;
     private GuiTextField xField;
     private GuiTextField yField;
     private GuiTextField zField;
@@ -37,6 +40,7 @@ public class GuiWaypointEdit extends GuiScreen {
     private int currentColor;
     private Waypoint.IconType currentIcon;
     private boolean enabled;
+    private boolean linkNether;
 
     public GuiWaypointEdit(
         GuiScreen parent,
@@ -71,55 +75,63 @@ public class GuiWaypointEdit extends GuiScreen {
         this.defaultZ = editing != null ? editing.z : z;
         this.defaultDim = editing != null ? editing.dimensionId : dim;
         this.enabled = editing == null || editing.enabled;
+        this.linkNether = editing != null && editing.linkNether;
         this.currentColor = editing != null ? (editing.color & 0xFFFFFF) : (presetColor & 0xFFFFFF);
         this.currentIcon = editing != null ? editing.getEffectiveIcon() : Waypoint.IconType.PIN;
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public void initGui() {
         Keyboard.enableRepeatEvents(true);
         this.buttonList.clear();
 
         // Preserve user edits across window resizes (F11 / GUI scale changes)
         String prevName = nameField != null ? nameField.getText() : defaultName;
-        String prevInit = initialsField != null ? initialsField.getText() : (editing != null ? editing.initials : "");
+        String prevGroup = groupField != null ? groupField.getText() : (editing != null ? editing.getEffectiveGroup() : Waypoint.GROUP_DEFAULT);
         String prevX = xField != null ? xField.getText() : String.valueOf(defaultX);
         String prevY = yField != null ? yField.getText() : String.valueOf(defaultY);
         String prevZ = zField != null ? zField.getText() : String.valueOf(defaultZ);
 
         int panelX = (this.width - PANEL_W) / 2;
-        int panelY = Math.max(10, (this.height - PANEL_H) / 2);
+        int panelY = Math.max(8, (this.height - PANEL_H) / 2);
 
-        nameField = new GuiTextField(this.fontRendererObj, panelX + 12, panelY + 30, 210, 16);
+        nameField = new GuiTextField(this.fontRendererObj, panelX + 12, panelY + 30, 166, 16);
         nameField.setMaxStringLength(48);
         nameField.setText(prevName);
         nameField.setFocused(true);
 
-        initialsField = new GuiTextField(this.fontRendererObj, panelX + 230, panelY + 30, 54, 16);
-        initialsField.setMaxStringLength(2);
-        initialsField.setText(prevInit);
+        groupField = new GuiTextField(this.fontRendererObj, panelX + 184, panelY + 30, 100, 16);
+        groupField.setMaxStringLength(20);
+        groupField.setText(prevGroup);
 
-        xField = new GuiTextField(this.fontRendererObj, panelX + 12, panelY + 62, 86, 16);
+        xField = new GuiTextField(this.fontRendererObj, panelX + 12, panelY + 60, 86, 16);
         xField.setText(prevX);
 
-        yField = new GuiTextField(this.fontRendererObj, panelX + 105, panelY + 62, 86, 16);
+        yField = new GuiTextField(this.fontRendererObj, panelX + 105, panelY + 60, 86, 16);
         yField.setText(prevY);
 
-        zField = new GuiTextField(this.fontRendererObj, panelX + 198, panelY + 62, 86, 16);
+        zField = new GuiTextField(this.fontRendererObj, panelX + 198, panelY + 60, 86, 16);
         zField.setText(prevZ);
 
-        // Icon strip occupies panelY + 86 .. panelY + 114
+        // Group preset pills: panelY + 82..96
+        // Icon strip: panelY + 110..132
         // Interactive HSV Color Picker (left side) + Hex + Live Preview + Presets (right side)
-        colorPicker = new ColorPickerWidget(panelX + 12, panelY + 122, 92, 14, currentColor);
+        colorPicker = new ColorPickerWidget(panelX + 12, panelY + 139, 92, 14, currentColor);
 
-        hexField = new GuiTextField(this.fontRendererObj, panelX + 134, panelY + 150, 74, 16);
+        hexField = new GuiTextField(this.fontRendererObj, panelX + 134, panelY + 167, 72, 16);
         hexField.setMaxStringLength(7);
         hexField.setText(colorPicker.getHexString());
 
-        this.buttonList.add(new ModernButton(1, panelX + 134, panelY + 196, 73, 18, Lang.tr("saifunsmap.wpedit.enabled", Lang.onOff(enabled))));
-        this.buttonList.add(new ModernButton(2, panelX + 211, panelY + 196, 73, 18, Lang.tr("saifunsmap.wpedit.random")));
-        this.buttonList.add(new ModernButton(10, panelX + 12, panelY + 236, 132, 20, Lang.tr("saifunsmap.common.save")).setAccent(true));
-        this.buttonList.add(new ModernButton(11, panelX + 152, panelY + 236, 132, 20, Lang.tr("saifunsmap.common.cancel")));
+        this.buttonList.add(new ModernButton(2, panelX + 210, panelY + 166, 74, 18, Lang.tr("saifunsmap.wpedit.random")));
+        this.buttonList.add(new ModernButton(1, panelX + 134, panelY + 215, 72, 18, Lang.tr("saifunsmap.wpedit.enabled", Lang.onOff(enabled))));
+        ModernButton btnNether = new ModernButton(3, panelX + 210, panelY + 215, 74, 18,
+            Lang.tr("saifunsmap.wpedit.nether_link", Lang.onOff(linkNether))).setAccent(linkNether);
+        btnNether.enabled = (defaultDim == 0 || defaultDim == -1);
+        this.buttonList.add(btnNether);
+
+        this.buttonList.add(new ModernButton(10, panelX + 12, panelY + 244, 132, 20, Lang.tr("saifunsmap.common.save")).setAccent(true));
+        this.buttonList.add(new ModernButton(11, panelX + 152, panelY + 244, 132, 20, Lang.tr("saifunsmap.common.cancel")));
     }
 
     @Override
@@ -136,6 +148,12 @@ public class GuiWaypointEdit extends GuiScreen {
             currentColor = WaypointManager.pickRandomColor();
             colorPicker.setRgb(currentColor);
             hexField.setText(colorPicker.getHexString());
+        } else if (button.id == 3) {
+            linkNether = !linkNether;
+            button.displayString = Lang.tr("saifunsmap.wpedit.nether_link", Lang.onOff(linkNether));
+            if (button instanceof ModernButton) {
+                ((ModernButton) button).setAccent(linkNether);
+            }
         } else if (button.id == 10) {
             saveAndClose();
         } else if (button.id == 11) {
@@ -146,7 +164,9 @@ public class GuiWaypointEdit extends GuiScreen {
     private void saveAndClose() {
         String name = nameField.getText().trim();
         if (name.isEmpty()) name = "Waypoint";
-        String initials = Waypoint.normalizeInitials(initialsField.getText(), name);
+        String initials = Waypoint.normalizeInitials(editing != null ? editing.initials : null, name);
+        Waypoint.Type wpType = editing != null ? editing.type : Waypoint.Type.NORMAL;
+        String group = Waypoint.normalizeGroup(groupField.getText(), wpType);
         int x = parseIntSafe(xField.getText(), defaultX);
         int y = parseIntSafe(yField.getText(), defaultY);
         int z = parseIntSafe(zField.getText(), defaultZ);
@@ -154,17 +174,21 @@ public class GuiWaypointEdit extends GuiScreen {
         if (editing != null) {
             editing.name = name;
             editing.initials = initials;
+            editing.group = group;
             editing.x = x;
             editing.y = y;
             editing.z = z;
             editing.color = currentColor;
             editing.icon = currentIcon;
             editing.enabled = enabled;
+            editing.linkNether = linkNether;
             manager.save();
         } else {
             Waypoint created = new Waypoint(name, initials, x, y, z, defaultDim, currentColor, Waypoint.Type.NORMAL);
+            created.group = group;
             created.icon = currentIcon;
             created.enabled = enabled;
+            created.linkNether = linkNether;
             manager.addWaypoint(created);
         }
         this.mc.displayGuiScreen(parent);
@@ -189,7 +213,7 @@ public class GuiWaypointEdit extends GuiScreen {
             return;
         }
         if (keyCode == Keyboard.KEY_TAB) {
-            GuiTextField[] fields = { nameField, initialsField, xField, yField, zField, hexField };
+            GuiTextField[] fields = { nameField, groupField, xField, yField, zField, hexField };
             int cur = 0;
             for (int i = 0; i < fields.length; i++) {
                 if (fields[i].isFocused()) {
@@ -203,7 +227,7 @@ public class GuiWaypointEdit extends GuiScreen {
             return;
         }
         nameField.textboxKeyTyped(typedChar, keyCode);
-        initialsField.textboxKeyTyped(typedChar, keyCode);
+        groupField.textboxKeyTyped(typedChar, keyCode);
         xField.textboxKeyTyped(typedChar, keyCode);
         yField.textboxKeyTyped(typedChar, keyCode);
         zField.textboxKeyTyped(typedChar, keyCode);
@@ -224,7 +248,7 @@ public class GuiWaypointEdit extends GuiScreen {
     protected void mouseClicked(int mouseX, int mouseY, int mouseButton) {
         super.mouseClicked(mouseX, mouseY, mouseButton);
         nameField.mouseClicked(mouseX, mouseY, mouseButton);
-        initialsField.mouseClicked(mouseX, mouseY, mouseButton);
+        groupField.mouseClicked(mouseX, mouseY, mouseButton);
         xField.mouseClicked(mouseX, mouseY, mouseButton);
         yField.mouseClicked(mouseX, mouseY, mouseButton);
         zField.mouseClicked(mouseX, mouseY, mouseButton);
@@ -237,12 +261,25 @@ public class GuiWaypointEdit extends GuiScreen {
         }
 
         int panelX = (this.width - PANEL_W) / 2;
-        int panelY = Math.max(10, (this.height - PANEL_H) / 2);
+        int panelY = Math.max(8, (this.height - PANEL_H) / 2);
+
+        // 5 quick preset group pills
+        int pillY = panelY + 81;
+        int pillH = 14;
+        int pillGap = 4;
+        int pillW = (PANEL_W - 24 - pillGap * (Waypoint.PRESET_GROUPS.length - 1)) / Waypoint.PRESET_GROUPS.length;
+        for (int i = 0; i < Waypoint.PRESET_GROUPS.length; i++) {
+            int px = panelX + 12 + i * (pillW + pillGap);
+            if (mouseX >= px && mouseX <= px + pillW && mouseY >= pillY && mouseY <= pillY + pillH) {
+                groupField.setText(Waypoint.PRESET_GROUPS[i]);
+                return;
+            }
+        }
 
         // 12-icon pixel-art selector strip
         Waypoint.IconType[] icons = Waypoint.IconType.values();
         int iconBaseX = panelX + 12;
-        int iconBaseY = panelY + 94;
+        int iconBaseY = panelY + 110;
         int iconCell = 22;
         for (int i = 0; i < icons.length; i++) {
             int ix = iconBaseX + i * 23;
@@ -254,7 +291,7 @@ public class GuiWaypointEdit extends GuiScreen {
 
         // Quick 2x6 preset color swatches on the right side
         int swatchBaseX = panelX + 134;
-        int swatchBaseY = panelY + 172;
+        int swatchBaseY = panelY + 189;
         for (int i = 0; i < WaypointManager.PALETTE.length; i++) {
             int col = i % 6;
             int row = i / 6;
@@ -289,7 +326,7 @@ public class GuiWaypointEdit extends GuiScreen {
     @Override
     public void updateScreen() {
         nameField.updateCursorCounter();
-        initialsField.updateCursorCounter();
+        groupField.updateCursorCounter();
         xField.updateCursorCounter();
         yField.updateCursorCounter();
         zField.updateCursorCounter();
@@ -299,7 +336,7 @@ public class GuiWaypointEdit extends GuiScreen {
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
         int panelX = (this.width - PANEL_W) / 2;
-        int panelY = Math.max(10, (this.height - PANEL_H) / 2);
+        int panelY = Math.max(8, (this.height - PANEL_H) / 2);
 
         GLDraw.ensureBlend();
         GLDraw.rect(panelX, panelY, panelX + PANEL_W, panelY + PANEL_H, 0xEC0C1017);
@@ -312,22 +349,41 @@ public class GuiWaypointEdit extends GuiScreen {
         drawCenteredString(this.fontRendererObj, title, this.width / 2, panelY + 8, 0xFFF8FAFC);
 
         this.fontRendererObj.drawStringWithShadow(Lang.tr("saifunsmap.wpedit.name"), panelX + 12, panelY + 20, 0xFF94A3B8);
-        this.fontRendererObj.drawStringWithShadow(Lang.tr("saifunsmap.wpedit.tag"), panelX + 230, panelY + 20, 0xFF94A3B8);
-        this.fontRendererObj.drawStringWithShadow("X", panelX + 12, panelY + 52, 0xFF94A3B8);
-        this.fontRendererObj.drawStringWithShadow("Y", panelX + 105, panelY + 52, 0xFF94A3B8);
-        this.fontRendererObj.drawStringWithShadow("Z", panelX + 198, panelY + 52, 0xFF94A3B8);
-        this.fontRendererObj.drawStringWithShadow(Lang.tr("saifunsmap.wpedit.icon"), panelX + 12, panelY + 83, 0xFF94A3B8);
+        this.fontRendererObj.drawStringWithShadow(Lang.tr("saifunsmap.wpedit.group"), panelX + 184, panelY + 20, 0xFF94A3B8);
+        this.fontRendererObj.drawStringWithShadow("X", panelX + 12, panelY + 50, 0xFF94A3B8);
+        this.fontRendererObj.drawStringWithShadow("Y", panelX + 105, panelY + 50, 0xFF94A3B8);
+        this.fontRendererObj.drawStringWithShadow("Z", panelX + 198, panelY + 50, 0xFF94A3B8);
+        this.fontRendererObj.drawStringWithShadow(Lang.tr("saifunsmap.wpedit.icon"), panelX + 12, panelY + 99, 0xFF94A3B8);
 
         nameField.drawTextBox();
-        initialsField.drawTextBox();
+        groupField.drawTextBox();
         xField.drawTextBox();
         yField.drawTextBox();
         zField.drawTextBox();
 
+        // 5 quick preset group pills
+        String curGrp = groupField.getText().trim();
+        int pillY = panelY + 81;
+        int pillH = 14;
+        int pillGap = 4;
+        int pillW = (PANEL_W - 24 - pillGap * (Waypoint.PRESET_GROUPS.length - 1)) / Waypoint.PRESET_GROUPS.length;
+        for (int i = 0; i < Waypoint.PRESET_GROUPS.length; i++) {
+            String preset = Waypoint.PRESET_GROUPS[i];
+            int px = panelX + 12 + i * (pillW + pillGap);
+            boolean sel = preset.equalsIgnoreCase(curGrp);
+            boolean hov = mouseX >= px && mouseX <= px + pillW && mouseY >= pillY && mouseY <= pillY + pillH;
+            int bg = sel ? 0xDD2563EB : (hov ? 0xBB1E293B : 0x88111622);
+            int border = sel ? 0xFF93C5FD : (hov ? 0xAA64748B : 0x55334155);
+            GLDraw.rect(px, pillY, px + pillW, pillY + pillH, bg);
+            GLDraw.rectOutline(px, pillY, px + pillW, pillY + pillH, 1.0, border);
+            GLDraw.drawCenteredText(this.fontRendererObj, GuiWaypoints.localizeGroup(preset),
+                px + pillW * 0.5, pillY + 3.5, 0.78f, sel ? 0xFFFFFFFF : 0xFFCBD5E1);
+        }
+
         // 12-icon pixel-art selector strip
         Waypoint.IconType[] icons = Waypoint.IconType.values();
         int iconBaseX = panelX + 12;
-        int iconBaseY = panelY + 94;
+        int iconBaseY = panelY + 110;
         int iconCell = 22;
         String hoveredIconName = null;
         for (int i = 0; i < icons.length; i++) {
@@ -350,7 +406,7 @@ public class GuiWaypointEdit extends GuiScreen {
 
         // Live waypoint icon preview + Hex code input
         int prevX = panelX + 134;
-        int prevY = panelY + 122;
+        int prevY = panelY + 139;
         GLDraw.rect(prevX, prevY, prevX + 24, prevY + 24, 0xFF0A0D12);
         GLDraw.rectOutline(prevX, prevY, prevX + 24, prevY + 24, 1.0, 0x88334155);
         WaypointIconRenderer.drawIcon(currentIcon, prevX + 12.0, prevY + 12.0, 18.0, currentColor, 1.0f);
@@ -361,7 +417,7 @@ public class GuiWaypointEdit extends GuiScreen {
 
         // Compact 2x6 quick preset swatches
         int swatchBaseX = panelX + 134;
-        int swatchBaseY = panelY + 172;
+        int swatchBaseY = panelY + 189;
         for (int i = 0; i < WaypointManager.PALETTE.length; i++) {
             int col = i % 6;
             int row = i / 6;
