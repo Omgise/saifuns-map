@@ -5,8 +5,10 @@ import com.saifun.map.config.MapConfig;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ServerData;
 import net.minecraft.server.integrated.IntegratedServer;
+import net.minecraft.world.World;
 
 import java.io.File;
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -16,6 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.regex.Pattern;
 
 /**
  * Manages cached 512x512 map regions per world & dimension, async shading, and async binary disk I/O.
@@ -293,26 +296,43 @@ public class MapWorldCache {
         return (((long) rx) << 32) | (rz & 0xFFFFFFFFL);
     }
 
+    private static final Pattern SANITIZE_PATTERN = Pattern.compile("[^a-zA-Z0-9._-]");
+    private static WeakReference<World> cachedWorldRef = new WeakReference<>(null);
+    private static String cachedWorldId = null;
+
     public static String resolveCurrentWorldId() {
         Minecraft mc = Minecraft.getMinecraft();
-        if (mc.theWorld == null) return null;
+        World w = mc.theWorld;
+        if (w == null) {
+            cachedWorldId = null;
+            return null;
+        }
+        if (cachedWorldId != null && cachedWorldRef.get() == w) {
+            return cachedWorldId;
+        }
 
+        String id;
         if (mc.isSingleplayer()) {
             IntegratedServer is = mc.getIntegratedServer();
             if (is != null && is.getFolderName() != null) {
-                return "sp_" + sanitize(is.getFolderName());
+                id = "sp_" + sanitize(is.getFolderName());
+            } else {
+                id = "sp_world";
             }
-            return "sp_world";
         } else {
             ServerData sd = mc.func_147104_D();
             if (sd != null && sd.serverIP != null && !sd.serverIP.isEmpty()) {
-                return "mp_" + sanitize(sd.serverIP);
+                id = "mp_" + sanitize(sd.serverIP);
+            } else {
+                id = "mp_server";
             }
-            return "mp_server";
         }
+        cachedWorldRef = new WeakReference<>(w);
+        cachedWorldId = id;
+        return id;
     }
 
     private static String sanitize(String raw) {
-        return raw.replaceAll("[^a-zA-Z0-9._-]", "_");
+        return SANITIZE_PATTERN.matcher(raw).replaceAll("_");
     }
 }

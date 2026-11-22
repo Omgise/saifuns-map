@@ -44,6 +44,7 @@ public class WaypointWorldRenderer {
         Vec3 look = player.getLook(partialTicks);
         FontRenderer fr = mc.fontRenderer;
         int maxDist = cfg.maxWaypointRenderDistance;
+        double maxDistSq = (double) maxDist * (double) maxDist;
 
         try (GLStateGuard ignored = new GLStateGuard()) {
             GL11.glDisable(GL11.GL_LIGHTING);
@@ -61,8 +62,9 @@ public class WaypointWorldRenderer {
                 double dx = wx - camX;
                 double dy = wy - camY;
                 double dz = wz - camZ;
-                double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-                if (dist > maxDist || dist < 1.5) continue;
+                double distSq = dx * dx + dy * dy + dz * dz;
+                if (distSq > maxDistSq || distSq < 2.25) continue;
+                double dist = Math.sqrt(distSq);
 
                 // Dot product with camera view ray to check if player is looking toward this waypoint
                 double invDist = 1.0 / dist;
@@ -129,9 +131,10 @@ public class WaypointWorldRenderer {
 
     private static String formatDistance(double dist) {
         if (dist >= 1000.0) {
-            return String.format("%.1fkm", dist / 1000.0);
+            int tenths = (int) Math.round(dist / 100.0);
+            return (tenths / 10) + "." + (tenths % 10) + "km";
         }
-        return Math.round(dist) + "m";
+        return ((int) Math.round(dist)) + "m";
     }
 
     private static void renderBeam(double rx, double baseY, double rz, int color) {

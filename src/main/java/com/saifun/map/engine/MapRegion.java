@@ -47,17 +47,22 @@ public class MapRegion {
     private final byte[] blockLight = new byte[PIXEL_COUNT];
     private final int[] surfaceShadedArgb = new int[PIXEL_COUNT];
 
-    // Cave buffers
-    private final int[] caveBaseRgb = new int[PIXEL_COUNT];
-    private final short[] caveHeight = new short[PIXEL_COUNT];
-    private final int[] caveShadedArgb = new int[PIXEL_COUNT];
+    // Cave buffers (allocated lazily on first cave data to save ~2.5 MB RAM per overworld region!)
+    private int[] caveBaseRgb = null;
+    private short[] caveHeight = null;
+    private int[] caveShadedArgb = null;
+
+    // Fine-grained lock ONLY for BitSet dirty flags so the GL render thread NEVER stalls on background shading!
+    private final Object dirtyLock = new Object();
 
     // Chunk presence & dirty upload tracking
     private final BitSet populatedChunks = new BitSet(CHUNKS_PER_SIDE * CHUNKS_PER_SIDE);
     private final BitSet dirtySurfaceChunks = new BitSet(CHUNKS_PER_SIDE * CHUNKS_PER_SIDE);
     private final BitSet dirtyCaveChunks = new BitSet(CHUNKS_PER_SIDE * CHUNKS_PER_SIDE);
-    private boolean fullSurfaceUploadNeeded = false;
-    private boolean fullCaveUploadNeeded = false;
+    private volatile boolean fullSurfaceUploadNeeded = false;
+    private volatile boolean fullCaveUploadNeeded = false;
+    private volatile boolean hasAnySurfaceData = false;
+    private volatile boolean hasAnyCaveData = false;
 
     private int surfaceTextureId = 0;
     private int caveTextureId = 0;
@@ -69,6 +74,14 @@ public class MapRegion {
         this.dimensionId = dimensionId;
         this.regionX = regionX;
         this.regionZ = regionZ;
+    }
+
+    private void ensureCaveBuffers() {
+        if (caveBaseRgb == null) {
+            caveBaseRgb = new int[PIXEL_COUNT];
+            caveHeight = new short[PIXEL_COUNT];
+            caveShadedArgb = new int[PIXEL_COUNT];
+        }
     }
 
     public void touch() {
@@ -90,6 +103,11 @@ public class MapRegion {
         int baseZ = localCz << 4;
         int chunkIdx = (localCz << 5) | localCx;
 
+        if (snap.hasCaveData) {
+            ensureCaveBuffers();
+            hasAnyCaveData = true;
+        }
+
         for (int lz = 0; lz < 16; lz++) {
             int rowOff = (baseZ + lz) * SIZE + baseX;
             int srcOff = lz << 4;
@@ -109,25 +127,28 @@ public class MapRegion {
             }
         }
 
-        populatedChunks.set(chunkIdx);
+        synchronized (dirtyLock) {
+            populatedChunks.set(chunkIdx);
+        }
+        hasAnySurfaceData = true;
 
         // Reshade this chunk and immediate E/S/SE neighbors for seamless directional NW->SE sun shadows
         reshadeChunk(localCx, localCz, snap.hasCaveData);
-        if (localCx + 1 < CHUNKS_PER_SIDE && populatedChunks.get((localCz << 5) | (localCx + 1))) {
+        if (localCx + 1 < CHUNKS_PER_SIDE && isChunkPopulated(localCx + 1, localCz)) {
             reshadeChunk(localCx + 1, localCz, snap.hasCaveData);
         }
-        if (localCz + 1 < CHUNKS_PER_SIDE && populatedChunks.get(((localCz + 1) << 5) | localCx)) {
+        if (localCz + 1 < CHUNKS_PER_SIDE && isChunkPopulated(localCx, localCz + 1)) {
             reshadeChunk(localCx, localCz + 1, snap.hasCaveData);
         }
         if (localCx + 1 < CHUNKS_PER_SIDE && localCz + 1 < CHUNKS_PER_SIDE
-            && populatedChunks.get(((localCz + 1) << 5) | (localCx + 1))) {
+            && isChunkPopulated(localCx + 1, localCz + 1)) {
             reshadeChunk(localCx + 1, localCz + 1, snap.hasCaveData);
         }
         if (snap.hasCaveData) {
-            if (localCx > 0 && populatedChunks.get((localCz << 5) | (localCx - 1))) {
+            if (localCx > 0 && isChunkPopulated(localCx - 1, localCz)) {
                 reshadeChunk(localCx - 1, localCz, true);
             }
-            if (localCz > 0 && populatedChunks.get(((localCz - 1) << 5) | localCx)) {
+            if (localCz > 0 && isChunkPopulated(localCx, localCz - 1)) {
                 reshadeChunk(localCx, localCz - 1, true);
             }
         }
@@ -299,7 +320,7 @@ public class MapRegion {
                     surfaceShadedArgb[idx] = 0;
                 }
 
-                if (includeCave) {
+                if (includeCave && caveBaseRgb != null) {
                     int cRgb = caveBaseRgb[idx];
                     if (cRgb != 0) {
                         int ch = caveHeight[idx];
@@ -369,17 +390,27 @@ public class MapRegion {
         }
 
         int chunkIdx = (localCz << 5) | localCx;
-        dirtySurfaceChunks.set(chunkIdx);
-        if (includeCave) {
-            dirtyCaveChunks.set(chunkIdx);
+        synchronized (dirtyLock) {
+            dirtySurfaceChunks.set(chunkIdx);
+            if (includeCave && caveShadedArgb != null) {
+                dirtyCaveChunks.set(chunkIdx);
+            }
         }
     }
 
     /**
      * Binds (and lazily allocates/updates dirty sub-regions of) the OpenGL texture on the render thread.
+     * Lock-free against background chunk shading (uses microsecond dirtyLock only for BitSet!).
      */
-    public synchronized int getOrUpdateTexture(boolean caveMode, boolean linearFilter) {
+    public int getOrUpdateTexture(boolean caveMode, boolean linearFilter) {
         touch();
+        int[] pixels = caveMode ? caveShadedArgb : surfaceShadedArgb;
+        if (pixels == null) {
+            // No cave data yet in this region; fall back cleanly to empty/surface texture
+            pixels = surfaceShadedArgb;
+            caveMode = false;
+        }
+
         int texId = caveMode ? caveTextureId : surfaceTextureId;
         if (texId == 0) {
             texId = allocateEmptyTexture();
@@ -398,23 +429,30 @@ public class MapRegion {
         GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
 
         boolean fullUpload = caveMode ? fullCaveUploadNeeded : fullSurfaceUploadNeeded;
-        int[] pixels = caveMode ? caveShadedArgb : surfaceShadedArgb;
-        BitSet dirty = caveMode ? dirtyCaveChunks : dirtySurfaceChunks;
-
         if (fullUpload) {
-            uploadFullTexture(pixels);
-            dirty.clear();
             if (caveMode) fullCaveUploadNeeded = false;
             else fullSurfaceUploadNeeded = false;
-        } else if (!dirty.isEmpty()) {
-            // Budgeted incremental uploads (max 8 chunks per frame) to guarantee zero drag stutter!
-            int uploaded = 0;
-            for (int bit = dirty.nextSetBit(0); bit >= 0 && uploaded < 8; bit = dirty.nextSetBit(bit + 1)) {
-                int localCx = bit & 31;
-                int localCz = bit >>> 5;
-                uploadChunkRect(pixels, localCx << 4, localCz << 4);
-                dirty.clear(bit);
-                uploaded++;
+            synchronized (dirtyLock) {
+                (caveMode ? dirtyCaveChunks : dirtySurfaceChunks).clear();
+            }
+            uploadFullTexture(pixels);
+        } else {
+            // Drain up to 8 dirty chunks under microsecond dirtyLock, then upload to GPU lock-free
+            int[] toUpload = null;
+            int uploadCount = 0;
+            synchronized (dirtyLock) {
+                BitSet dirty = caveMode ? dirtyCaveChunks : dirtySurfaceChunks;
+                if (!dirty.isEmpty()) {
+                    toUpload = new int[8];
+                    for (int bit = dirty.nextSetBit(0); bit >= 0 && uploadCount < 8; bit = dirty.nextSetBit(bit + 1)) {
+                        toUpload[uploadCount++] = bit;
+                        dirty.clear(bit);
+                    }
+                }
+            }
+            for (int i = 0; i < uploadCount; i++) {
+                int bit = toUpload[i];
+                uploadChunkRect(pixels, (bit & 31) << 4, (bit >>> 5) << 4);
             }
         }
 
@@ -487,12 +525,14 @@ public class MapRegion {
     }
 
     public boolean hasSurfaceData() {
-        return !populatedChunks.isEmpty();
+        return hasAnySurfaceData;
     }
 
-    public synchronized boolean isChunkPopulated(int localCx, int localCz) {
+    public boolean isChunkPopulated(int localCx, int localCz) {
         if (localCx < 0 || localCx >= CHUNKS_PER_SIDE || localCz < 0 || localCz >= CHUNKS_PER_SIDE) return false;
-        return populatedChunks.get((localCz << 5) | localCx);
+        synchronized (dirtyLock) {
+            return populatedChunks.get((localCz << 5) | localCx);
+        }
     }
 
     /**
@@ -595,7 +635,11 @@ public class MapRegion {
 
             synchronized (this) {
                 for (int bit = tmpPop.nextSetBit(0); bit >= 0; bit = tmpPop.nextSetBit(bit + 1)) {
-                    if (populatedChunks.get(bit)) continue; // Don't overwrite fresher live chunks
+                    boolean alreadyPop;
+                    synchronized (dirtyLock) {
+                        alreadyPop = populatedChunks.get(bit);
+                    }
+                    if (alreadyPop) continue;
                     int baseX = (bit & 31) << 4;
                     int baseZ = (bit >>> 5) << 4;
                     for (int lz = 0; lz < 16; lz++) {
@@ -605,7 +649,10 @@ public class MapRegion {
                         System.arraycopy(tmpWD, rowOff, waterDepth, rowOff, 16);
                         System.arraycopy(tmpWRgb, rowOff, waterRgb, rowOff, 16);
                     }
-                    populatedChunks.set(bit);
+                    synchronized (dirtyLock) {
+                        populatedChunks.set(bit);
+                    }
+                    hasAnySurfaceData = true;
                 }
                 reshadeAll();
                 dirtyOnDisk = false;

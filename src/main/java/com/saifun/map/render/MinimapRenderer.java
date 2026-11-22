@@ -46,6 +46,18 @@ public class MinimapRenderer {
     private boolean enlarged = false;
     private long lastFrameNanos = 0L;
 
+    // Zero-allocation info-bar string cache (only rebuilt when player moves block or minute ticks)
+    private int lastInfoX = Integer.MIN_VALUE;
+    private int lastInfoY = Integer.MIN_VALUE;
+    private int lastInfoZ = Integer.MIN_VALUE;
+    private int lastInfoDim = Integer.MIN_VALUE;
+    private boolean lastInfoCave = false;
+    private int lastInfoFlags = -1;
+    private long lastInfoMinute = -1L;
+    private String cachedLine1 = "";
+    private String cachedLine2 = "";
+    private String cachedLine3 = "";
+
     public MinimapRenderer(
         MapWorldCache worldCache,
         ChunkScanner chunkScanner,
@@ -585,7 +597,7 @@ public class MinimapRenderer {
         }
     }
 
-    private static void renderInfoBar(
+    private void renderInfoBar(
         World world,
         EntityClientPlayerMP player,
         int left,
@@ -601,37 +613,64 @@ public class MinimapRenderer {
         int px = MathHelper.floor_double(player.posX);
         int py = MathHelper.floor_double(player.posY);
         int pz = MathHelper.floor_double(player.posZ);
+        int dim = world.provider.dimensionId;
+        long minuteBucket = (world.getWorldTime() + 6000L) / 20L;
 
-        StringBuilder line1 = new StringBuilder();
-        if (cfg.showCoordinates) {
-            line1.append(px).append(", ").append(py).append(", ").append(pz);
-            if (cfg.showDimensionCoords && world.provider.dimensionId == -1) {
-                line1.append(" (").append(px * 8).append(", ").append(pz * 8).append(")");
+        int infoFlags = (cfg.showCoordinates ? 1 : 0)
+            | (cfg.showBiome ? 2 : 0)
+            | (cfg.showTimeAndLight ? 4 : 0)
+            | (cfg.showDimensionCoords ? 8 : 0);
+
+        if (px != lastInfoX || py != lastInfoY || pz != lastInfoZ
+            || dim != lastInfoDim || caveMode != lastInfoCave
+            || infoFlags != lastInfoFlags || minuteBucket != lastInfoMinute) {
+            lastInfoX = px;
+            lastInfoY = py;
+            lastInfoZ = pz;
+            lastInfoDim = dim;
+            lastInfoCave = caveMode;
+            lastInfoFlags = infoFlags;
+            lastInfoMinute = minuteBucket;
+
+            if (cfg.showCoordinates) {
+                StringBuilder sb = new StringBuilder(24);
+                sb.append(px).append(", ").append(py).append(", ").append(pz);
+                if (cfg.showDimensionCoords && dim == -1) {
+                    sb.append(" (").append(px * 8).append(", ").append(pz * 8).append(")");
+                }
+                cachedLine1 = sb.toString();
+            } else {
+                cachedLine1 = "";
+            }
+
+            if (cfg.showBiome) {
+                BiomeGenBase biome = world.getBiomeGenForCoords(px, pz);
+                String bName = biome != null ? biome.biomeName : "Unknown";
+                cachedLine2 = caveMode ? (bName + " [Cave]") : bName;
+            } else if (caveMode) {
+                cachedLine2 = "Cave Mode";
+            } else {
+                cachedLine2 = "";
+            }
+
+            if (cfg.showTimeAndLight) {
+                long timeOfDay = (world.getWorldTime() + 6000L) % 24000L;
+                int hours = (int) (timeOfDay / 1000L);
+                int mins = (int) ((timeOfDay % 1000L) * 60L / 1000L);
+                int cy = Math.max(0, Math.min(255, py));
+                int light = world.blockExists(px, cy, pz) ? world.getBlockLightValue(px, cy, pz) : 0;
+                cachedLine3 = (hours < 10 ? "0" : "") + hours + ":" + (mins < 10 ? "0" : "") + mins + " | L:" + light;
+            } else {
+                cachedLine3 = "";
             }
         }
 
-        String line2 = "";
-        if (cfg.showBiome) {
-            BiomeGenBase biome = world.getBiomeGenForCoords(px, pz);
-            String bName = biome != null ? biome.biomeName : "Unknown";
-            line2 = caveMode ? (bName + " [Cave]") : bName;
-        } else if (caveMode) {
-            line2 = "Cave Mode";
-        }
-
-        String line3 = "";
-        if (cfg.showTimeAndLight) {
-            long timeOfDay = (world.getWorldTime() + 6000L) % 24000L;
-            int hours = (int) (timeOfDay / 1000L);
-            int mins = (int) ((timeOfDay % 1000L) * 60L / 1000L);
-            int light = world.blockExists(px, Math.max(0, Math.min(255, py)), pz)
-                ? world.getBlockLightValue(px, Math.max(0, Math.min(255, py)), pz)
-                : 0;
-            line3 = String.format("%02d:%02d | L:%d", hours, mins, light);
-        }
+        String line1 = cfg.showCoordinates ? cachedLine1 : "";
+        String line2 = (cfg.showBiome || caveMode) ? cachedLine2 : "";
+        String line3 = cfg.showTimeAndLight ? cachedLine3 : "";
 
         int lines = 0;
-        if (line1.length() > 0) lines++;
+        if (!line1.isEmpty()) lines++;
         if (!line2.isEmpty()) lines++;
         if (!line3.isEmpty()) lines++;
         if (lines == 0) return;
@@ -646,8 +685,8 @@ public class MinimapRenderer {
         }
 
         int curY = startY;
-        if (line1.length() > 0) {
-            GLDraw.drawCenteredText(fr, line1.toString(), left + size * 0.5, curY, textScale, 0xFFF8FAFC);
+        if (!line1.isEmpty()) {
+            GLDraw.drawCenteredText(fr, line1, left + size * 0.5, curY, textScale, 0xFFF8FAFC);
             curY += lineHeight;
         }
         if (!line2.isEmpty()) {

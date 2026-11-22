@@ -41,10 +41,21 @@ import java.util.Map;
 public class NavigatorBridge implements IGtnhLayerBridge {
 
     private static final double LN2 = Math.log(2.0);
+    private static final Comparator<UniversalLayerRenderer> PRIORITY_COMP =
+        Comparator.comparingInt(UniversalLayerRenderer::getRenderPriority);
 
     private final com.saifun.map.waypoints.WaypointManager ourWaypoints;
     private final Map<LayerManager, UniversalLayerRenderer> boundRenderers = new IdentityHashMap<>();
+    private final Map<UniversalLayerRenderer, LayerManager> rendererToManager = new IdentityHashMap<>();
     private final List<LayerManager> orderedManagers = new ArrayList<>();
+    private final List<UniversalLayerRenderer> activeRenderersCache = new ArrayList<>();
+    private boolean activeCacheDirty = true;
+
+    private List<LayerButtonInfo> cachedButtons = null;
+    private int cachedDispW = -1;
+    private int cachedDispH = -1;
+    private int cachedGuiScaleSetting = -1;
+    private int cachedScaleFactor = 1;
 
     private Method addLayerRendererMethod;
     private Method addInteractableRendererMethod;
@@ -142,6 +153,8 @@ public class NavigatorBridge implements IGtnhLayerBridge {
 
             if (ulr != null) {
                 boundRenderers.put(lm, ulr);
+                rendererToManager.put(ulr, lm);
+                activeCacheDirty = true;
             }
 
             if (lm instanceof InteractableLayerManager) {
@@ -156,10 +169,18 @@ public class NavigatorBridge implements IGtnhLayerBridge {
         }
     }
 
-    private static int getGuiScaleFactor() {
+    private int getGuiScaleFactor() {
         Minecraft mc = Minecraft.getMinecraft();
-        ScaledResolution sr = new ScaledResolution(mc, mc.displayWidth, mc.displayHeight);
-        return Math.max(1, sr.getScaleFactor());
+        int dw = mc.displayWidth;
+        int dh = mc.displayHeight;
+        int gs = mc.gameSettings != null ? mc.gameSettings.guiScale : 0;
+        if (dw != cachedDispW || dh != cachedDispH || gs != cachedGuiScaleSetting) {
+            cachedDispW = dw;
+            cachedDispH = dh;
+            cachedGuiScaleSetting = gs;
+            cachedScaleFactor = Math.max(1, new ScaledResolution(mc, dw, dh).getScaleFactor());
+        }
+        return cachedScaleFactor;
     }
 
     @Override
@@ -171,6 +192,8 @@ public class NavigatorBridge implements IGtnhLayerBridge {
     public void onWorldMapOpened() {
         if (!isAvailable()) return;
         ensureBootstrapped();
+        activeCacheDirty = true;
+        cachedButtons = null;
         for (LayerManager lm : orderedManagers) {
             try {
                 lm.onGuiOpened(SupportedMods.JourneyMap);
@@ -182,6 +205,7 @@ public class NavigatorBridge implements IGtnhLayerBridge {
     @Override
     public void onWorldMapClosed() {
         if (!isAvailable()) return;
+        cachedButtons = null;
         for (LayerManager lm : orderedManagers) {
             try {
                 lm.onGuiClosed(SupportedMods.JourneyMap);
@@ -191,10 +215,11 @@ public class NavigatorBridge implements IGtnhLayerBridge {
 
     @Override
     public List<LayerButtonInfo> getLayerButtons() {
-        List<LayerButtonInfo> out = new ArrayList<>();
-        if (!isAvailable()) return out;
+        if (!isAvailable()) return java.util.Collections.emptyList();
         ensureBootstrapped();
+        if (cachedButtons != null) return cachedButtons;
 
+        List<LayerButtonInfo> out = new ArrayList<>();
         try {
             List<ButtonManager> buttons = NavigatorApi.getDistinctButtons();
             if (buttons == null) return out;
@@ -210,6 +235,8 @@ public class NavigatorBridge implements IGtnhLayerBridge {
                 } catch (Throwable ignored) {}
                 out.add(new LayerButtonInfo(text != null ? text : "Layer", icon, bm.isActive(), () -> {
                     bm.toggle();
+                    activeCacheDirty = true;
+                    cachedButtons = null;
                     for (LayerManager lm : orderedManagers) {
                         if (lm.getButtonManager() == bm) {
                             lm.forceRefresh();
@@ -218,6 +245,7 @@ public class NavigatorBridge implements IGtnhLayerBridge {
                 }));
             }
         } catch (Throwable ignored) {}
+        cachedButtons = out;
         return out;
     }
 
@@ -495,23 +523,25 @@ public class NavigatorBridge implements IGtnhLayerBridge {
     }
 
     private List<UniversalLayerRenderer> collectActiveRenderersSorted() {
-        List<UniversalLayerRenderer> active = new ArrayList<>();
-        for (LayerManager lm : orderedManagers) {
+        if (!activeCacheDirty) {
+            return activeRenderersCache;
+        }
+        activeRenderersCache.clear();
+        for (int i = 0; i < orderedManagers.size(); i++) {
+            LayerManager lm = orderedManagers.get(i);
             if (!lm.isLayerActive()) continue;
             UniversalLayerRenderer ulr = boundRenderers.get(lm);
             if (ulr != null) {
-                active.add(ulr);
+                activeRenderersCache.add(ulr);
             }
         }
-        active.sort(Comparator.comparingInt(UniversalLayerRenderer::getRenderPriority));
-        return active;
+        activeRenderersCache.sort(PRIORITY_COMP);
+        activeCacheDirty = false;
+        return activeRenderersCache;
     }
 
     private LayerManager findManagerFor(UniversalLayerRenderer target) {
-        for (Map.Entry<LayerManager, UniversalLayerRenderer> e : boundRenderers.entrySet()) {
-            if (e.getValue() == target) return e.getKey();
-        }
-        return null;
+        return rendererToManager.get(target);
     }
 
     private static final class SaifunsNavigatorWaypointManager extends WaypointManager {

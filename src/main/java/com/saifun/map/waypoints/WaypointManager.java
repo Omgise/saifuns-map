@@ -20,8 +20,10 @@ import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -62,11 +64,28 @@ public class WaypointManager {
 
     private final MapWorldCache worldCache;
     private final List<Waypoint> waypoints = new ArrayList<>();
-    private String loadedWorldId = null;
+    private volatile Map<Integer, List<Waypoint>> dimCache = Collections.emptyMap();
+    private volatile String loadedWorldId = null;
     private boolean wasDeadLastTick = false;
 
     public WaypointManager(MapWorldCache worldCache) {
         this.worldCache = worldCache;
+    }
+
+    private void rebuildDimCache() {
+        if (waypoints.isEmpty()) {
+            dimCache = Collections.emptyMap();
+            return;
+        }
+        Map<Integer, List<Waypoint>> map = new HashMap<>();
+        for (int i = 0; i < waypoints.size(); i++) {
+            Waypoint wp = waypoints.get(i);
+            map.computeIfAbsent(wp.dimensionId, k -> new ArrayList<>()).add(wp);
+        }
+        for (Map.Entry<Integer, List<Waypoint>> e : map.entrySet()) {
+            e.setValue(Collections.unmodifiableList(e.getValue()));
+        }
+        dimCache = map;
     }
 
     public synchronized void ensureLoaded() {
@@ -79,6 +98,7 @@ public class WaypointManager {
     public synchronized void clearSession() {
         save();
         waypoints.clear();
+        dimCache = Collections.emptyMap();
         loadedWorldId = null;
         wasDeadLastTick = false;
     }
@@ -104,9 +124,11 @@ public class WaypointManager {
                 SaifunsMapMod.LOG.warn("Failed to load waypoints from {}: {}", file, e.getMessage());
             }
         }
+        rebuildDimCache();
     }
 
     public synchronized void save() {
+        rebuildDimCache();
         if (loadedWorldId == null) return;
         File file = getWaypointsFile(loadedWorldId);
         try {
@@ -133,15 +155,12 @@ public class WaypointManager {
         return Collections.unmodifiableList(new ArrayList<>(waypoints));
     }
 
-    public synchronized List<Waypoint> getWaypointsForDimension(int dimId) {
-        ensureLoaded();
-        List<Waypoint> out = new ArrayList<>();
-        for (Waypoint wp : waypoints) {
-            if (wp.dimensionId == dimId) {
-                out.add(wp);
-            }
-        }
-        return out;
+    /**
+     * Lock-free, zero-allocation lookup for render-thread frame loops (150+ FPS).
+     */
+    public List<Waypoint> getWaypointsForDimension(int dimId) {
+        List<Waypoint> cached = dimCache.get(dimId);
+        return cached != null ? cached : Collections.emptyList();
     }
 
     public synchronized void addWaypoint(Waypoint wp) {
@@ -178,17 +197,21 @@ public class WaypointManager {
         wp.id = "nav:" + tagKey;
         wp.temporary = true;
         waypoints.add(wp);
+        rebuildDimCache();
     }
 
     public synchronized void clearNavigatorWaypoints(String tagKey) {
         String targetId = "nav:" + tagKey;
+        boolean changed = false;
         Iterator<Waypoint> it = waypoints.iterator();
         while (it.hasNext()) {
             Waypoint wp = it.next();
             if (wp.type == Waypoint.Type.NAVIGATOR && targetId.equals(wp.id)) {
                 it.remove();
+                changed = true;
             }
         }
+        if (changed) rebuildDimCache();
     }
 
     public synchronized boolean hasNavigatorWaypoint(String tagKey) {

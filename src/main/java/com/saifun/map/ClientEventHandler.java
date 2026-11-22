@@ -86,6 +86,7 @@ public class ClientEventHandler {
         chunkScanner.reset();
         radarManager.clear();
         waypointManager.clearSession();
+        com.saifun.map.radar.EntityIconRenderer.clearEntityIdCache();
     }
 
     @SubscribeEvent

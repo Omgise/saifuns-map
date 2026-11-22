@@ -103,6 +103,8 @@ public final class EntityIconRenderer {
     private static final HeadUV UV_FULL = new HeadUV(0, 0, 1, 1, 1, 1);
 
     private static final Map<Class<?>, Method> TEXTURE_METHOD_CACHE = new ConcurrentHashMap<>();
+    private static final Map<Class<?>, ResourceLocation> CLASS_TEXTURE_CACHE = new ConcurrentHashMap<>();
+    private static final Map<Integer, ResourceLocation> ENTITY_ID_TEXTURE_CACHE = new ConcurrentHashMap<>();
     private static final Map<String, ResourceLocation> CUSTOM_ICON_CACHE = new ConcurrentHashMap<>();
     private static final ResourceLocation MISSING_ICON = new ResourceLocation("saifunsmap", "__missing__");
 
@@ -110,6 +112,12 @@ public final class EntityIconRenderer {
 
     public static void clearCache() {
         CUSTOM_ICON_CACHE.clear();
+        CLASS_TEXTURE_CACHE.clear();
+        ENTITY_ID_TEXTURE_CACHE.clear();
+    }
+
+    public static void clearEntityIdCache() {
+        ENTITY_ID_TEXTURE_CACHE.clear();
     }
 
     public static void renderEntity(
@@ -279,17 +287,54 @@ public final class EntityIconRenderer {
         return null;
     }
 
+    private static boolean hasVariantTextures(Entity entity) {
+        return entity instanceof EntityHorse
+            || entity instanceof EntityVillager
+            || entity instanceof EntityWolf
+            || entity instanceof EntityOcelot
+            || entity instanceof EntitySkeleton
+            || entity instanceof EntitySheep;
+    }
+
     private static ResourceLocation resolveEntityTexture(Entity entity) {
+        Class<?> clazz = entity.getClass();
+        boolean variant = hasVariantTextures(entity);
+        if (!variant) {
+            ResourceLocation cached = CLASS_TEXTURE_CACHE.get(clazz);
+            if (cached != null) {
+                return cached == MISSING_ICON ? null : cached;
+            }
+        } else {
+            ResourceLocation cached = ENTITY_ID_TEXTURE_CACHE.get(entity.getEntityId());
+            if (cached != null) {
+                return cached == MISSING_ICON ? null : cached;
+            }
+        }
+
+        ResourceLocation resolved = null;
         try {
             Render render = RenderManager.instance.getEntityRenderObject(entity);
-            if (render == null) return null;
-            Method m = getEntityTextureMethod(render.getClass());
-            if (m == null) return null;
-            Object res = m.invoke(render, entity);
-            return res instanceof ResourceLocation ? (ResourceLocation) res : null;
-        } catch (Throwable ignored) {
-            return null;
+            if (render != null) {
+                Method m = getEntityTextureMethod(render.getClass());
+                if (m != null) {
+                    Object res = m.invoke(render, entity);
+                    if (res instanceof ResourceLocation) {
+                        resolved = (ResourceLocation) res;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        ResourceLocation toStore = resolved != null ? resolved : MISSING_ICON;
+        if (!variant) {
+            CLASS_TEXTURE_CACHE.put(clazz, toStore);
+        } else {
+            if (ENTITY_ID_TEXTURE_CACHE.size() > 512) {
+                ENTITY_ID_TEXTURE_CACHE.clear();
+            }
+            ENTITY_ID_TEXTURE_CACHE.put(entity.getEntityId(), toStore);
         }
+        return resolved;
     }
 
     private static Method getEntityTextureMethod(Class<?> renderClass) {
