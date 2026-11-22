@@ -111,13 +111,17 @@ public class MapRegion {
 
         populatedChunks.set(chunkIdx);
 
-        // Reshade this chunk and immediate neighbors for seamless slope & cave-wall AO shading
+        // Reshade this chunk and immediate E/S/SE neighbors for seamless directional NW->SE sun shadows
         reshadeChunk(localCx, localCz, snap.hasCaveData);
         if (localCx + 1 < CHUNKS_PER_SIDE && populatedChunks.get((localCz << 5) | (localCx + 1))) {
             reshadeChunk(localCx + 1, localCz, snap.hasCaveData);
         }
         if (localCz + 1 < CHUNKS_PER_SIDE && populatedChunks.get(((localCz + 1) << 5) | localCx)) {
             reshadeChunk(localCx, localCz + 1, snap.hasCaveData);
+        }
+        if (localCx + 1 < CHUNKS_PER_SIDE && localCz + 1 < CHUNKS_PER_SIDE
+            && populatedChunks.get(((localCz + 1) << 5) | (localCx + 1))) {
+            reshadeChunk(localCx + 1, localCz + 1, snap.hasCaveData);
         }
         if (snap.hasCaveData) {
             if (localCx > 0 && populatedChunks.get((localCz << 5) | (localCx - 1))) {
@@ -163,50 +167,109 @@ public class MapRegion {
                 if (rgb != 0) {
                     int h = surfaceHeight[idx];
                     float shade = 1.0f;
+                    float shadowIntensity = 0.0f;
+                    float sunHighlight = 0.0f;
                     int wDepth = waterDepth[idx] & 0xFF;
 
                     if (shading) {
-                        int hN = rz > 0 ? surfaceHeight[idx - SIZE] : h;
-                        int hW = rx > 0 ? surfaceHeight[idx - 1] : h;
-                        int hNW = (rz > 0 && rx > 0) ? surfaceHeight[idx - SIZE - 1] : h;
+                        int surfaceY = h + wDepth;
+                        boolean hasN = rz > 0 && surfaceBaseRgb[idx - SIZE] != 0;
+                        boolean hasW = rx > 0 && surfaceBaseRgb[idx - 1] != 0;
+                        boolean hasNW = rz > 0 && rx > 0 && surfaceBaseRgb[idx - SIZE - 1] != 0;
+                        boolean hasS = rz + 1 < SIZE && surfaceBaseRgb[idx + SIZE] != 0;
+                        boolean hasE = rx + 1 < SIZE && surfaceBaseRgb[idx + 1] != 0;
+
+                        int hN = hasN ? (surfaceHeight[idx - SIZE] + (waterDepth[idx - SIZE] & 0xFF)) : surfaceY;
+                        int hW = hasW ? (surfaceHeight[idx - 1] + (waterDepth[idx - 1] & 0xFF)) : surfaceY;
+                        int hNW = hasNW ? (surfaceHeight[idx - SIZE - 1] + (waterDepth[idx - SIZE - 1] & 0xFF)) : surfaceY;
+                        int hS = hasS ? (surfaceHeight[idx + SIZE] + (waterDepth[idx + SIZE] & 0xFF)) : surfaceY;
+                        int hE = hasE ? (surfaceHeight[idx + 1] + (waterDepth[idx + 1] & 0xFF)) : surfaceY;
 
                         if (wDepth > 0) {
-                            // Subtle riverbed contour under water + crisp riverbank edge shadow
-                            int bankDrop = Math.max(hN - (h + wDepth), hW - (h + wDepth));
-                            if (bankDrop >= 1) {
-                                shade = Math.max(0.76f, 1.0f - Math.min(4, bankDrop) * 0.06f);
-                            } else {
-                                int subSlope = (h - hN) + (h - hW);
-                                shade = 1.0f + Math.max(-2, Math.min(2, subSlope)) * 0.025f;
+                            // Water surface receives crisp NW riverbank/tree cast shadows + gentle riverbed contour
+                            int maxBank = Math.max(Math.max(hN - surfaceY, hW - surfaceY), hNW - surfaceY);
+                            if (maxBank >= 1) {
+                                float bankShadow = Math.min(0.28f, maxBank * 0.065f);
+                                shade *= (1.0f - bankShadow);
+                                shadowIntensity = Math.max(shadowIntensity, bankShadow);
                             }
-                        } else {
-                            // Crisp 3-neighbor directional Xaero topographic relief (NW sunlit, SE shaded)
-                            int slope = (h - hN) * 2 + (h - hW) * 2 + (h - hNW);
-                            if (slope > 0) {
-                                shade = Math.min(1.20f, 1.0f + Math.min(6, slope) * 0.036f);
-                            } else if (slope < 0) {
-                                shade = Math.max(0.64f, 1.0f + Math.max(-6, slope) * 0.058f);
-                            }
-
-                            // Soft 2-pixel drop-shadow cast SE by cliffs, hills, and tree canopies!
-                            int tallShadow = Math.max(hN - h, hW - h);
-                            if (tallShadow >= 2) {
-                                shade *= Math.max(0.76f, 1.0f - Math.min(6, tallShadow) * 0.038f);
-                            } else {
-                                int hN2 = rz > 1 ? surfaceHeight[idx - SIZE * 2] : h;
-                                int hW2 = rx > 1 ? surfaceHeight[idx - 2] : h;
-                                int farDrop = Math.max(hN2 - h, hW2 - h);
-                                if (farDrop >= 4) {
-                                    shade *= 0.89f;
+                            // 3-step NW raycast so riverside trees/cliffs cast real shadows onto water!
+                            for (int d = 1; d <= 3; d++) {
+                                if (rx >= d && rz >= d) {
+                                    int nIdx = idx - d * SIZE - d;
+                                    if (surfaceBaseRgb[nIdx] != 0) {
+                                        int occluderY = surfaceHeight[nIdx] + (waterDepth[nIdx] & 0xFF);
+                                        if (occluderY > surfaceY + d * 1.6f) {
+                                            float s = 0.22f * (1.0f - (d - 1) * 0.25f);
+                                            shade *= (1.0f - s);
+                                            shadowIntensity = Math.max(shadowIntensity, s);
+                                            break;
+                                        }
+                                    }
                                 }
                             }
+                        } else {
+                            // 1. Directional 3-neighbor Xaero topographic slope relief (NW sunlit, SE shaded)
+                            int slope = (h - hN) * 2 + (h - hW) * 2 + (h - hNW);
+                            if (slope > 0) {
+                                float boost = Math.min(0.20f, Math.min(6, slope) * 0.036f);
+                                shade += boost;
+                                sunHighlight = boost;
+                            } else if (slope < 0) {
+                                float dark = Math.min(0.36f, Math.min(6, -slope) * 0.062f);
+                                shade -= dark;
+                                shadowIntensity = Math.max(shadowIntensity, dark);
+                            }
 
-                            // Subtle elevation gradient so mountain ridges stand out from valleys
-                            shade *= 0.94f + Math.min(1.0f, Math.max(0.0f, (h - 50) / 100.0f)) * 0.14f;
+                            // 2. 4-step NW->SE Directional Sun Shadow Raycast (mountains, cliffs, trees & GTNH bases!)
+                            float castShadow = 0.0f;
+                            for (int d = 1; d <= 4; d++) {
+                                if (rx >= d && rz >= d) {
+                                    int nIdx = idx - d * SIZE - d;
+                                    if (surfaceBaseRgb[nIdx] != 0) {
+                                        int occluderY = surfaceHeight[nIdx] + (waterDepth[nIdx] & 0xFF);
+                                        float heightExcess = occluderY - (h + d * 1.45f);
+                                        if (heightExcess > 0.0f) {
+                                            float falloff = 1.0f - (d - 1) * 0.20f;
+                                            float strength = Math.min(0.30f, (0.14f + heightExcess * 0.028f) * falloff);
+                                            if (strength > castShadow) {
+                                                castShadow = strength;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if (castShadow > 0.0f) {
+                                shade *= (1.0f - castShadow);
+                                shadowIntensity = Math.max(shadowIntensity, castShadow);
+                            }
+
+                            // 3. Crease / valley Ambient Occlusion (darkens corners & ravines surrounded by higher blocks)
+                            int higherCount = (hN > h ? 1 : 0) + (hW > h ? 1 : 0) + (hS > h ? 1 : 0) + (hE > h ? 1 : 0);
+                            if (higherCount >= 2) {
+                                float ao = (higherCount - 1) * 0.045f;
+                                shade *= (1.0f - ao);
+                                shadowIntensity = Math.max(shadowIntensity, ao * 1.4f);
+                            }
+
+                            // 4. Gentle altitude contour lift so peaks pop cleanly above valleys
+                            shade *= 0.93f + Math.min(1.0f, Math.max(0.0f, (h - 48) / 100.0f)) * 0.16f;
+                            shade = Math.max(0.52f, Math.min(1.24f, shade));
                         }
                     }
 
                     int finalRgb = BlockColorResolver.shadeColor(rgb, shade);
+
+                    // Color-temperature polish: cool slate shadows + subtle warm sunlit ridges (zero muddy grey!)
+                    if (shading && wDepth == 0) {
+                        if (shadowIntensity > 0.08f) {
+                            float coolMix = Math.min(0.16f, (shadowIntensity - 0.06f) * 0.45f);
+                            finalRgb = BlockColorResolver.blendColor(finalRgb, 0x1A2845, coolMix);
+                        } else if (sunHighlight > 0.05f) {
+                            float warmMix = Math.min(0.08f, sunHighlight * 0.35f);
+                            finalRgb = BlockColorResolver.blendColor(finalRgb, 0xFFF7DC, warmMix);
+                        }
+                    }
 
                     if (wDepth > 0) {
                         // Crisp Xaero water gradient: bright turquoise-blue shallows -> rich royal/sapphire deep water
@@ -215,7 +278,6 @@ public class MapRegion {
                         float tDepth = Math.min(1.0f, wDepth / 9.0f);
                         int wCol = BlockColorResolver.blendColor(shallowWater, deepWaterBase, tDepth);
                         if (waterRgb[idx] != 0) {
-                            // Preserve subtle biome tint (swamp/river/ocean) without turning grey/lavender
                             wCol = BlockColorResolver.blendColor(wCol, waterRgb[idx], 0.25f);
                         }
                         if (waterTrans) {
@@ -224,9 +286,11 @@ public class MapRegion {
                         } else {
                             finalRgb = wCol;
                         }
-                        // Re-apply subtle shoreline shadow onto water surface
                         if (shade < 0.99f) {
                             finalRgb = BlockColorResolver.shadeColor(finalRgb, shade);
+                            if (shadowIntensity > 0.06f) {
+                                finalRgb = BlockColorResolver.blendColor(finalRgb, 0x13203B, Math.min(0.18f, shadowIntensity * 0.5f));
+                            }
                         }
                     }
 
