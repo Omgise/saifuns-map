@@ -1,0 +1,12 @@
+key.categories.saifunsmap=Saifun's Map
+key.saifunsmap.settings=Открыть настройки карты
+key.saifunsmap.worldmap=Открыть карту мира
+key.saifunsmap.toggle_minimap=Показать / скрыть мини-карту
+key.saifunsmap.zoom_in=Приблизить мини-карту
+key.saifunsmap.zoom_out=Отдалить мини-карту
+key.saifunsmap.toggle_cave=Переключить Cave Mode
+key.saifunsmap.toggle_ore_grid=Сетка рудных жил GT (3x3)
+key.saifunsmap.toggle_chunk_grid=Сетка чанков (16x16)
+key.saifunsmap.toggle_shape=Круглая / квадратная мини-карта
+key.saifunsmap.add_waypoint=Быстрая метка (Waypoint)
+key.saifunsmap.waypoints=Меню меток (Waypoints)

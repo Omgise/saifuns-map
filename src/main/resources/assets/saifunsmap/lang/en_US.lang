@@ -1,0 +1,12 @@
+key.categories.saifunsmap=Saifun's Map
+key.saifunsmap.settings=Open Map Settings
+key.saifunsmap.worldmap=Open World Map
+key.saifunsmap.toggle_minimap=Toggle Minimap HUD
+key.saifunsmap.zoom_in=Minimap Zoom In
+key.saifunsmap.zoom_out=Minimap Zoom Out
+key.saifunsmap.toggle_cave=Cycle Cave Mode
+key.saifunsmap.toggle_ore_grid=Toggle GT Ore Vein Grid (3x3)
+key.saifunsmap.toggle_chunk_grid=Toggle Chunk Grid (16x16)
+key.saifunsmap.toggle_shape=Toggle Circle / Square Minimap
+key.saifunsmap.add_waypoint=Quick Add Waypoint
+key.saifunsmap.waypoints=Open Waypoints Menu
