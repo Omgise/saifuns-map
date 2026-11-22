@@ -190,6 +190,41 @@ public class MapWorldCache {
     }
 
     /**
+     * Deletes all explored map tiles (.smap) for the current dimension in memory and on disk,
+     * while preserving waypoints.json and all other dimensions untouched.
+     */
+    public int clearCurrentDimensionMapData() {
+        final String worldSnap = this.activeWorldId;
+        final int dimSnap = this.activeDimension;
+
+        List<MapRegion> snapshot = new ArrayList<>(regions.values());
+        regions.clear();
+        pendingDiskLoads.clear();
+        for (MapRegion region : snapshot) {
+            pendingTextureDeletes.add(region);
+        }
+
+        if (worldSnap == null) return 0;
+
+        File dimDir = new File(new File(dataRoot, "worlds/" + worldSnap), "dim_" + dimSnap);
+        int deleted = 0;
+        if (dimDir.exists() && dimDir.isDirectory()) {
+            File[] files = dimDir.listFiles();
+            if (files != null) {
+                for (File f : files) {
+                    if (f.isFile() && (f.getName().endsWith(".smap") || f.getName().endsWith(".smap.tmp"))) {
+                        if (f.delete()) {
+                            deleted++;
+                        }
+                    }
+                }
+            }
+        }
+        SaifunsMapMod.LOG.info("Cleared {} cached region file(s) for world='{}' dim={} (waypoints preserved).", deleted, worldSnap, dimSnap);
+        return deleted;
+    }
+
+    /**
      * Called on the main GL thread each frame/tick to free orphaned textures and trigger periodic saves.
      */
     public void onRenderTick() {

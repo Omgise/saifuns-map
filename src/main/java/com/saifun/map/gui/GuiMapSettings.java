@@ -3,9 +3,11 @@ package com.saifun.map.gui;
 import com.saifun.map.ClientProxy;
 import com.saifun.map.SaifunsMapMod;
 import com.saifun.map.config.MapConfig;
+import com.saifun.map.engine.BlockColorResolver;
 import com.saifun.map.render.GLDraw;
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
+import net.minecraft.util.ChatComponentText;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -39,6 +41,7 @@ public class GuiMapSettings extends GuiScreen {
 
     private Tab activeTab = Tab.MINIMAP;
     private final List<OptionEntry> currentOptions = new ArrayList<>();
+    private boolean confirmClearMap = false;
 
     @Override
     public void initGui() {
@@ -138,6 +141,14 @@ public class GuiMapSettings extends GuiScreen {
                     cfg.chunksScannedPerTick = cfg.chunksScannedPerTick >= 16 ? 2 : cfg.chunksScannedPerTick + 2;
                 });
                 addBool("Disk Region Cache", () -> cfg.diskCacheEnabled, () -> cfg.diskCacheEnabled = !cfg.diskCacheEnabled);
+                addOption("Clear Map", () -> confirmClearMap ? "CONFIRM?" : "Keep WPs", () -> {
+                    if (!confirmClearMap) {
+                        confirmClearMap = true;
+                        return;
+                    }
+                    confirmClearMap = false;
+                    clearCurrentMapTiles();
+                });
                 break;
 
             case RADAR:
@@ -193,6 +204,20 @@ public class GuiMapSettings extends GuiScreen {
         }
     }
 
+    private void clearCurrentMapTiles() {
+        if (SaifunsMapMod.proxy instanceof ClientProxy) {
+            ClientProxy cp = (ClientProxy) SaifunsMapMod.proxy;
+            BlockColorResolver.clearCache();
+            int removed = cp.getWorldCache().clearCurrentDimensionMapData();
+            cp.getChunkScanner().reset();
+            if (this.mc != null && this.mc.thePlayer != null) {
+                this.mc.thePlayer.addChatMessage(new ChatComponentText(
+                    "\u00a7b[Saifun's Map]\u00a7r Cleared map tiles (" + removed + " region files removed, waypoints kept). Re-scanning..."
+                ));
+            }
+        }
+    }
+
     @Override
     protected void actionPerformed(GuiButton button) {
         if (button.id == 999) {
@@ -205,6 +230,7 @@ public class GuiMapSettings extends GuiScreen {
             Tab[] tabs = Tab.values();
             if (idx >= 0 && idx < tabs.length) {
                 this.activeTab = tabs[idx];
+                this.confirmClearMap = false;
                 rebuildButtons();
             }
             return;
