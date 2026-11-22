@@ -7,8 +7,10 @@ import com.gtnewhorizons.navigator.api.model.layers.InteractableLayer;
 import com.gtnewhorizons.navigator.api.model.layers.InteractableLayerManager;
 import com.gtnewhorizons.navigator.api.model.layers.LayerManager;
 import com.gtnewhorizons.navigator.api.model.layers.LayerRenderer;
+import com.gtnewhorizons.navigator.api.model.layers.UniversalInteractableRenderer;
 import com.gtnewhorizons.navigator.api.model.layers.UniversalLayerRenderer;
 import com.gtnewhorizons.navigator.api.model.locations.ILocationProvider;
+import com.gtnewhorizons.navigator.api.model.steps.UniversalLocationInteractableStep;
 import com.gtnewhorizons.navigator.api.model.steps.UniversalRenderStep;
 import com.gtnewhorizons.navigator.api.model.waypoints.Waypoint;
 import com.gtnewhorizons.navigator.api.model.waypoints.WaypointManager;
@@ -21,6 +23,7 @@ import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.util.MathHelper;
 import net.minecraft.util.ResourceLocation;
+import org.lwjgl.input.Keyboard;
 import org.lwjgl.opengl.GL11;
 
 import java.lang.reflect.Field;
@@ -62,6 +65,8 @@ public class NavigatorBridge implements IGtnhLayerBridge {
     private Method refreshDimCacheMethod;
     private Field layerRendererMapField;
     private Field waypointManagersMapField;
+    private Field hoveredStepField;
+    private Field stepXField;
     private boolean reflectionReady = false;
     private boolean bootstrapped = false;
 
@@ -103,6 +108,16 @@ public class NavigatorBridge implements IGtnhLayerBridge {
 
             waypointManagersMapField = InteractableLayerManager.class.getDeclaredField("waypointManagers");
             waypointManagersMapField.setAccessible(true);
+
+            try {
+                hoveredStepField = UniversalInteractableRenderer.class.getDeclaredField("hoveredLocationRenderStep");
+                hoveredStepField.setAccessible(true);
+            } catch (Throwable ignored) {}
+
+            try {
+                stepXField = UniversalRenderStep.class.getDeclaredField("x");
+                stepXField.setAccessible(true);
+            } catch (Throwable ignored) {}
 
             reflectionReady = true;
         } catch (Throwable t) {
@@ -194,6 +209,8 @@ public class NavigatorBridge implements IGtnhLayerBridge {
         ensureBootstrapped();
         activeCacheDirty = true;
         cachedButtons = null;
+        lastFullRecacheMs = 0L;
+        lastFullDim = Integer.MIN_VALUE;
         for (LayerManager lm : orderedManagers) {
             try {
                 lm.onGuiOpened(SupportedMods.JourneyMap);
@@ -206,6 +223,8 @@ public class NavigatorBridge implements IGtnhLayerBridge {
     public void onWorldMapClosed() {
         if (!isAvailable()) return;
         cachedButtons = null;
+        lastMiniRecacheMs = 0L;
+        lastMiniDim = Integer.MIN_VALUE;
         for (LayerManager lm : orderedManagers) {
             try {
                 lm.onGuiClosed(SupportedMods.JourneyMap);
@@ -350,6 +369,12 @@ public class NavigatorBridge implements IGtnhLayerBridge {
                     double syRaw = rawCenterY + (loc.getBlockZ() - centerBlockZ) * blockSizeRaw;
 
                     if (sxRaw < -256 || sxRaw > rawW + 256 || syRaw < -256 || syRaw > rawH + 256) {
+                        // Move culled step's cached screen X off-screen so it never leaves a ghost hover hitbox!
+                        if (stepXField != null) {
+                            try {
+                                stepXField.setDouble(step, -1.0e6);
+                            } catch (Throwable ignored) {}
+                        }
                         continue;
                     }
 
@@ -467,6 +492,9 @@ public class NavigatorBridge implements IGtnhLayerBridge {
             if (ulr instanceof InteractableLayer) {
                 try {
                     if (((InteractableLayer) ulr).onMapClick(isDoubleClick, rawX, rawY, blockX, blockZ)) {
+                        LayerManager lm = findManagerFor(ulr);
+                        if (lm != null) lm.forceRefresh();
+                        lastFullRecacheMs = 0L;
                         return true;
                     }
                 } catch (Throwable ignored) {}
@@ -478,13 +506,32 @@ public class NavigatorBridge implements IGtnhLayerBridge {
     @Override
     public boolean onKeyPressed(int keyCode) {
         if (!isAvailable() || !MapConfig.get().showNavigatorOnWorldMap) return false;
+        boolean isActionKey = keyCode == Keyboard.KEY_DELETE
+            || (NavigatorApi.ACTION_KEY != null && NavigatorApi.ACTION_KEY.getKeyCode() > 0
+                && keyCode == NavigatorApi.ACTION_KEY.getKeyCode());
+
         List<UniversalLayerRenderer> active = collectActiveRenderersSorted();
         for (int i = active.size() - 1; i >= 0; i--) {
             UniversalLayerRenderer ulr = active.get(i);
             if (ulr instanceof InteractableLayer) {
                 try {
                     if (((InteractableLayer) ulr).onKeyPressed(keyCode)) {
+                        LayerManager lm = findManagerFor(ulr);
+                        if (lm != null) lm.forceRefresh();
+                        lastFullRecacheMs = 0L;
                         return true;
+                    }
+                    // Rock-solid fallback for Delete / Navigator Action Key in case Util.isKeyPressed misses
+                    // an LWJGL3 key state or the player presses Delete when ACTION_KEY was rebound/unbound.
+                    if (isActionKey && ulr instanceof UniversalInteractableRenderer && hoveredStepField != null) {
+                        Object hoveredObj = hoveredStepField.get(ulr);
+                        if (hoveredObj instanceof UniversalLocationInteractableStep) {
+                            ((UniversalLocationInteractableStep<?>) hoveredObj).onActionKeyPressed();
+                            LayerManager lm = findManagerFor(ulr);
+                            if (lm != null) lm.forceRefresh();
+                            lastFullRecacheMs = 0L;
+                            return true;
+                        }
                     }
                 } catch (Throwable ignored) {}
             }

@@ -113,12 +113,10 @@ public class GuiWorldMap extends GuiScreen {
     private int lastClickX = 0;
     private int lastClickY = 0;
 
-    // Cinematic smooth open/close transition & player sonar ping
+    // Smooth open/close zoom + fade transition
     private static final double OPEN_DURATION_SEC = 0.24;
     private static final double CLOSE_DURATION_SEC = 0.14;
-    private static final double SONAR_DURATION_SEC = 0.58;
     private double openProgress = 0.0;
-    private double sonarProgress = 0.0;
     private boolean closing = false;
 
     // Right-click context menu
@@ -161,7 +159,6 @@ public class GuiWorldMap extends GuiScreen {
             caveModeView = chunkScanner.isCaveModeActive();
             gtnhBridge.onWorldMapOpened();
             openProgress = 0.0;
-            sonarProgress = 0.0;
             closing = false;
             initialized = true;
         }
@@ -396,7 +393,7 @@ public class GuiWorldMap extends GuiScreen {
             return;
         }
 
-        if (gtnhBridge.onKeyPressed(keyCode)) {
+        if (!Keyboard.isRepeatEvent() && gtnhBridge.onKeyPressed(keyCode)) {
             return;
         }
 
@@ -439,7 +436,7 @@ public class GuiWorldMap extends GuiScreen {
     }
 
     private void updateAnimations(double dt) {
-        // Open / close transition progress & sonar ping
+        // Open / close transition progress
         if (closing) {
             openProgress -= dt / CLOSE_DURATION_SEC;
             if (openProgress <= 0.0) {
@@ -449,9 +446,6 @@ public class GuiWorldMap extends GuiScreen {
             }
         } else if (openProgress < 1.0) {
             openProgress = Math.min(1.0, openProgress + dt / OPEN_DURATION_SEC);
-        }
-        if (sonarProgress < 1.0) {
-            sonarProgress = Math.min(1.0, sonarProgress + dt / SONAR_DURATION_SEC);
         }
 
         // 0. Sub-pixel raw framebuffer mouse dragging (3x smoother at GUI Scale 3x, zero stepping/stutter!)
@@ -564,14 +558,9 @@ public class GuiWorldMap extends GuiScreen {
         double ease = easeOutCubic(openProgress);
         float uiAlpha = (float) ease;
         double revealScale = 0.84 + 0.16 * ease;
-        double slideFactor = 1.0 - ease;
 
         double cxScreen = this.width * 0.5;
         double cyScreen = this.height * 0.5;
-
-        if (!contextMenuOpen && !dragging && !closing) {
-            gtnhBridge.onMouseMove(mouseX, mouseY);
-        }
 
         try (GLStateGuard ignored = new GLStateGuard()) {
             GL11.glDisable(GL11.GL_LIGHTING);
@@ -601,54 +590,40 @@ public class GuiWorldMap extends GuiScreen {
                 this, centerX, centerZ, cxScreen, cyScreen, currentZoom, this.width, this.height
             );
 
+            // Hit-test Navigator layers right AFTER renderFullscreenLayers updated every step's screen bounds!
+            if (!contextMenuOpen && !dragging && !closing) {
+                gtnhBridge.onMouseMove(mouseX, mouseY);
+            } else {
+                gtnhBridge.onMouseMove(-9999, -9999);
+            }
+
             // 5. Entity Radar (Players always crisp; mobs scale & fade smoothly at low zoom!)
             renderWorldEntities(player, cxScreen, cyScreen, partialTicks);
 
             // 6. Waypoints
             Waypoint hoveredWp = renderWorldWaypoints(world.provider.dimensionId, cxScreen, cyScreen, mouseX, mouseY);
 
-            // 7. Sonar ping pulse around player on open + crisp red-accent Xaero player arrow
+            // 7. Crisp red-accent Xaero player arrow
             double pSx = worldToScreenX(player.posX, cxScreen);
             double pSy = worldToScreenY(player.posZ, cyScreen);
-            if (sonarProgress < 1.0 && !closing) {
-                double pEase = easeOutCubic(sonarProgress);
-                double ringR = 4.0 + pEase * 32.0;
-                float ringAlpha = (float) ((1.0 - pEase) * 0.78);
-                GLDraw.ring(pSx, pSy, Math.max(0.5, ringR - 1.4), ringR, GLDraw.withAlpha(0x60A5FA, ringAlpha), 36);
-                if (sonarProgress > 0.14) {
-                    double p2 = easeOutCubic((sonarProgress - 0.14) / 0.86);
-                    double ringR2 = 3.0 + p2 * 22.0;
-                    float ringAlpha2 = (float) ((1.0 - p2) * 0.55);
-                    GLDraw.ring(pSx, pSy, Math.max(0.5, ringR2 - 1.0), ringR2, GLDraw.withAlpha(0xFFFFFF, ringAlpha2), 32);
-                }
-            }
             drawPlayerChevron(pSx, pSy, player.rotationYaw - 180.0f);
 
             GL11.glPopMatrix();
 
-            // 8. Minimalist Top-Center Floating Coordinates & Biome (slides smoothly from top!)
-            GL11.glPushMatrix();
-            GL11.glTranslated(0.0, -slideFactor * 14.0, 0.0);
+            // 8. Minimalist Top-Center Floating Coordinates & Biome
             renderFloatingCoords(world, mouseX, mouseY);
-            GL11.glPopMatrix();
 
-            // 9. Minimalist Top-Right Compass Rose (slides smoothly from right!)
-            GL11.glPushMatrix();
-            GL11.glTranslated(slideFactor * 18.0, 0.0, 0.0);
+            // 9. Minimalist Top-Right Compass Rose
             renderCompassRose(this.width - 20, 20);
-            GL11.glPopMatrix();
 
-            // 10. Minimalist Floating Icon Buttons (Gear slides from left, vertical rail slides from right!)
-            String hoveredUiTip = renderUiIcons(mouseX, mouseY, slideFactor);
+            // 10. Minimalist Floating Icon Buttons
+            String hoveredUiTip = renderUiIcons(mouseX, mouseY);
 
-            // 11. Bottom-Left GTNH Navigator Layer Icons (staggered smooth slide from left!)
-            String hoveredLayerLabel = renderLayerToolbar(mouseX, mouseY, slideFactor);
+            // 11. Bottom-Left GTNH Navigator Layer Icons
+            String hoveredLayerLabel = renderLayerToolbar(mouseX, mouseY);
 
-            // 12. Bottom-Center subtle zoom readout + Search Bar (slides smoothly from bottom!)
-            GL11.glPushMatrix();
-            GL11.glTranslated(0.0, slideFactor * 14.0, 0.0);
+            // 12. Bottom-Center subtle zoom readout + Search Bar
             renderBottomControls();
-            GL11.glPopMatrix();
 
             // 13. Right-click Context Menu OR Hover Tooltip
             if (!closing) {
@@ -669,8 +644,9 @@ public class GuiWorldMap extends GuiScreen {
                         List<String> navTip = gtnhBridge.getHoveredTooltip();
                         if (!navTip.isEmpty()) {
                             drawHoveringText(navTip, mouseX, mouseY, this.fontRendererObj);
+                        } else {
+                            gtnhBridge.drawHoveredCustomTooltip(this.fontRendererObj, mouseX, mouseY, this.width, this.height);
                         }
-                        gtnhBridge.drawHoveredCustomTooltip(this.fontRendererObj, mouseX, mouseY, this.width, this.height);
                     }
                 }
             }
@@ -883,15 +859,11 @@ public class GuiWorldMap extends GuiScreen {
         GLDraw.drawCenteredText(this.fontRendererObj, "E", cx + 10, cy - 3, 0.70f, 0xFFCBD5E1);
     }
 
-    private String renderUiIcons(int mouseX, int mouseY, double slideFactor) {
+    private String renderUiIcons(int mouseX, int mouseY) {
         String hoveredTip = null;
         for (int i = 0; i < uiButtons.size(); i++) {
             IconButton b = uiButtons.get(i);
             boolean hover = b.hit(mouseX, mouseY);
-            double slideX = (b.id == BTN_SETTINGS) ? (-slideFactor * 20.0) : (slideFactor * (18.0 + i * 2.5));
-
-            GL11.glPushMatrix();
-            GL11.glTranslated(slideX, 0.0, 0.0);
 
             // True modern Xaero minimalism: borderless crisp icons at rest, sleek soft pill ONLY on hover/active!
             if (b.active) {
@@ -904,8 +876,6 @@ public class GuiWorldMap extends GuiScreen {
             drawVectorIcon(b.id, b.x + b.size * 0.5 + 0.8, b.y + b.size * 0.5 + 0.8, 0xAA070A0F);
             int fg = b.active ? 0xFFFFFFFF : (hover ? 0xFFFFFFFF : 0xE6F1F5F9);
             drawVectorIcon(b.id, b.x + b.size * 0.5, b.y + b.size * 0.5, fg);
-
-            GL11.glPopMatrix();
 
             if (hover) {
                 hoveredTip = b.tooltip;
@@ -959,7 +929,7 @@ public class GuiWorldMap extends GuiScreen {
     private static final int NAV_BTN_SIZE = 26;
     private static final int NAV_BTN_GAP = 5;
 
-    private String renderLayerToolbar(int mouseX, int mouseY, double slideFactor) {
+    private String renderLayerToolbar(int mouseX, int mouseY) {
         List<IGtnhLayerBridge.LayerButtonInfo> buttons = gtnhBridge.getLayerButtons();
         if (buttons.isEmpty()) return null;
 
@@ -975,10 +945,6 @@ public class GuiWorldMap extends GuiScreen {
             IGtnhLayerBridge.LayerButtonInfo b = buttons.get(i);
             int by = startY + i * (btnSize + gap);
             boolean hover = mouseX >= startX && mouseX <= startX + btnSize && mouseY >= by && mouseY <= by + btnSize;
-            double slideX = -slideFactor * (22.0 + (buttons.size() - 1 - i) * 4.0);
-
-            GL11.glPushMatrix();
-            GL11.glTranslated(slideX, 0.0, 0.0);
 
             if (b.active) {
                 GLDraw.rect(startX, by, startX + btnSize, by + btnSize, 0xAA2563EB);
@@ -998,8 +964,6 @@ public class GuiWorldMap extends GuiScreen {
                 String ch = b.label.isEmpty() ? "L" : b.label.substring(0, 1).toUpperCase();
                 GLDraw.drawCenteredText(this.fontRendererObj, ch, startX + btnSize * 0.5, by + 9, 0.95f, 0xFFFFFFFF);
             }
-
-            GL11.glPopMatrix();
 
             if (hover) {
                 hoveredText = b.label + (b.active ? " \u00a7a(ON)" : " \u00a77(OFF)");

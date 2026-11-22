@@ -5,6 +5,7 @@ import com.saifun.map.config.MapConfig;
 import com.saifun.map.engine.ChunkScanner;
 import com.saifun.map.engine.MapRegion;
 import com.saifun.map.engine.MapWorldCache;
+import com.saifun.map.gui.GuiWorldMap;
 import com.saifun.map.radar.EntityCategory;
 import com.saifun.map.radar.EntityIconRenderer;
 import com.saifun.map.radar.EntityRadarManager;
@@ -89,6 +90,9 @@ public class MinimapRenderer {
         EntityClientPlayerMP player = mc.thePlayer;
         if (world == null || player == null) return;
         if (mc.gameSettings.hideGUI || mc.gameSettings.showDebugInfo) return;
+        // Skip minimap rendering while fullscreen World Map is open: saves GPU work and prevents
+        // minimap Navigator pass from clobbering fullscreen UniversalRenderStep coordinates/hitboxes!
+        if (mc.currentScreen instanceof GuiWorldMap) return;
 
         worldCache.onRenderTick();
 
