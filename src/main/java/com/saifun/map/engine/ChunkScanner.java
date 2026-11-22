@@ -267,15 +267,35 @@ public class ChunkScanner {
                 // --- Cave / Nether slice pass ---
                 if (scanCave) {
                     int maxY = world.provider.hasNoSky ? Math.min(124, caveAnchorY + sliceUp) : Math.min(254, caveAnchorY + sliceUp);
-                    int minY = Math.max(1, caveAnchorY - 24);
-                    // Step down from maxY: first find open air/non-solid pocket, then first solid floor underneath
+                    int minY = Math.max(1, caveAnchorY - 32);
+                    // Step down from maxY: first find open air/non-solid pocket, then first solid floor (or lava/water)
                     boolean foundAir = false;
                     int caveCol = 0;
                     int caveY = 0;
+                    int caveWaterDepth = 0;
 
                     for (int cy = maxY; cy >= minY; cy--) {
                         Block b = chunk.getBlock(lx, cy, lz);
-                        boolean open = b == null || b == Blocks.air || !b.getMaterial().blocksMovement();
+                        if (b == null || b == Blocks.air) {
+                            foundAir = true;
+                            continue;
+                        }
+                        Material mat = b.getMaterial();
+                        if (mat == Material.lava) {
+                            if (foundAir) {
+                                caveCol = 0xFF6B1A; // Vibrant glowing cave lava
+                                caveY = cy;
+                                break;
+                            }
+                            continue;
+                        }
+                        if (mat == Material.water) {
+                            if (foundAir) {
+                                caveWaterDepth++;
+                            }
+                            continue;
+                        }
+                        boolean open = !mat.blocksMovement();
                         if (!foundAir) {
                             if (open) {
                                 foundAir = true;
@@ -284,6 +304,10 @@ public class ChunkScanner {
                             int meta = chunk.getBlockMetadata(lx, cy, lz);
                             caveCol = BlockColorResolver.getBlockColor(world, b, meta, wx, cy, wz, biome);
                             caveY = cy;
+                            if (caveWaterDepth > 0) {
+                                float wAlpha = Math.min(0.85f, 0.48f + Math.min(8, caveWaterDepth) * 0.045f);
+                                caveCol = BlockColorResolver.blendColor(caveCol, 0x2F66D0, wAlpha);
+                            }
                             break;
                         }
                     }

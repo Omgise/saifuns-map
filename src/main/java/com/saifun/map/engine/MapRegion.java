@@ -111,13 +111,21 @@ public class MapRegion {
 
         populatedChunks.set(chunkIdx);
 
-        // Reshade this chunk and immediate east/south neighbor borders for seamless slope shading
+        // Reshade this chunk and immediate neighbors for seamless slope & cave-wall AO shading
         reshadeChunk(localCx, localCz, snap.hasCaveData);
         if (localCx + 1 < CHUNKS_PER_SIDE && populatedChunks.get((localCz << 5) | (localCx + 1))) {
             reshadeChunk(localCx + 1, localCz, snap.hasCaveData);
         }
         if (localCz + 1 < CHUNKS_PER_SIDE && populatedChunks.get(((localCz + 1) << 5) | localCx)) {
             reshadeChunk(localCx, localCz + 1, snap.hasCaveData);
+        }
+        if (snap.hasCaveData) {
+            if (localCx > 0 && populatedChunks.get((localCz << 5) | (localCx - 1))) {
+                reshadeChunk(localCx - 1, localCz, true);
+            }
+            if (localCz > 0 && populatedChunks.get(((localCz - 1) << 5) | localCx)) {
+                reshadeChunk(localCx, localCz - 1, true);
+            }
         }
 
         dirtyOnDisk = true;
@@ -231,15 +239,63 @@ public class MapRegion {
                     int cRgb = caveBaseRgb[idx];
                     if (cRgb != 0) {
                         int ch = caveHeight[idx];
+                        boolean isLava = (cRgb == 0xFF6B1A || cRgb == 0xEB5E1A);
                         float cShade = 1.0f;
-                        if (shading) {
-                            int chN = rz > 0 ? caveHeight[idx - SIZE] : ch;
-                            int chW = rx > 0 ? caveHeight[idx - 1] : ch;
-                            int slope = (ch - chN) * 2 + (ch - chW);
-                            if (slope > 0) cShade = Math.min(1.20f, 1.0f + slope * 0.05f);
-                            else if (slope < 0) cShade = Math.max(0.68f, 1.0f + slope * 0.06f);
+
+                        if (shading && !isLava) {
+                            boolean hasN = rz > 0 && caveBaseRgb[idx - SIZE] != 0;
+                            boolean hasW = rx > 0 && caveBaseRgb[idx - 1] != 0;
+                            boolean hasNW = rz > 0 && rx > 0 && caveBaseRgb[idx - SIZE - 1] != 0;
+                            boolean hasS = rz + 1 < SIZE && caveBaseRgb[idx + SIZE] != 0;
+                            boolean hasE = rx + 1 < SIZE && caveBaseRgb[idx + 1] != 0;
+
+                            int chN = hasN ? caveHeight[idx - SIZE] : ch;
+                            int chW = hasW ? caveHeight[idx - 1] : ch;
+                            int chNW = hasNW ? caveHeight[idx - SIZE - 1] : ch;
+
+                            // 1. Directional 3-neighbor cave slope relief (only across valid open cave floors!)
+                            int slope = (ch - chN) * 2 + (ch - chW) * 2 + (ch - chNW);
+                            if (slope > 0) {
+                                cShade = Math.min(1.26f, 1.0f + Math.min(6, slope) * 0.046f);
+                            } else if (slope < 0) {
+                                cShade = Math.max(0.54f, 1.0f + Math.max(-6, slope) * 0.075f);
+                            }
+
+                            // 2. Crisp 2-pixel drop-shadow for cave ledges, stairs, and ravines
+                            int ledgeDrop = Math.max(chN - ch, chW - ch);
+                            if (ledgeDrop >= 2) {
+                                cShade *= Math.max(0.68f, 1.0f - Math.min(6, ledgeDrop) * 0.052f);
+                            } else {
+                                boolean hasN2 = rz > 1 && caveBaseRgb[idx - SIZE * 2] != 0;
+                                boolean hasW2 = rx > 1 && caveBaseRgb[idx - 2] != 0;
+                                int chN2 = hasN2 ? caveHeight[idx - SIZE * 2] : ch;
+                                int chW2 = hasW2 ? caveHeight[idx - 2] : ch;
+                                if (Math.max(chN2 - ch, chW2 - ch) >= 4) {
+                                    cShade *= 0.85f;
+                                }
+                            }
+
+                            // 3. Recessed tunnel-wall ambient occlusion (darkens edges hugging solid rock walls)
+                            int wallCount = (hasN ? 0 : 1) + (hasW ? 0 : 1) + (hasS ? 0 : 1) + (hasE ? 0 : 1);
+                            if (wallCount > 0) {
+                                cShade *= (1.0f - wallCount * 0.055f);
+                            }
+                            // Extra subtle rim shadow along N/W cave walls so tunnels feel deeply carved
+                            if (!hasN || !hasW) {
+                                cShade *= 0.91f;
+                            }
+
+                            // 4. Depth elevation gradient: deeper caves/ravines darken naturally, higher shelves brighten
+                            float depthFactor = 0.68f + Math.min(1.0f, Math.max(0.0f, (ch - 8) / 64.0f)) * 0.46f;
+                            cShade *= depthFactor;
                         }
+
                         int finalCave = BlockColorResolver.shadeColor(cRgb, cShade);
+                        // Subtle cool shadow tint in very deep tunnels (Y < 32) for instant vertical depth readability
+                        if (!isLava && ch < 32) {
+                            float cool = (32 - Math.max(0, ch)) / 32.0f * 0.16f;
+                            finalCave = BlockColorResolver.blendColor(finalCave, 0x1E2A44, cool);
+                        }
                         caveShadedArgb[idx] = 0xFF000000 | (finalCave & 0x00FFFFFF);
                     } else {
                         caveShadedArgb[idx] = 0;
