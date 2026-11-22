@@ -384,18 +384,16 @@ public class GuiWorldMap extends GuiScreen {
                 contextMenuActions.add(new IGtnhLayerBridge.ContextAction(Lang.tr("saifunsmap.context.wp_share"), () -> {
                     WaypointManager.shareInChat(wp);
                 }));
-                if (!wp.projectedCrossDim) {
-                    contextMenuActions.add(new IGtnhLayerBridge.ContextAction(Lang.tr("saifunsmap.context.wp_remove_beacon"), true, () -> {
-                        if (wp.type == Waypoint.Type.NAVIGATOR && wp.id != null && wp.id.startsWith("nav:")) {
-                            String tagKey = wp.id.substring(4);
-                            gtnhBridge.clearActiveWaypoint(tagKey);
-                            waypointManager.clearNavigatorWaypoints(tagKey);
-                        } else {
-                            waypointManager.removeWaypoint(wp);
-                        }
-                        if (lastHoveredWaypoint == wp) lastHoveredWaypoint = null;
-                    }));
-                }
+                contextMenuActions.add(new IGtnhLayerBridge.ContextAction(Lang.tr("saifunsmap.context.wp_remove_beacon"), true, () -> {
+                    if (wp.type == Waypoint.Type.NAVIGATOR && wp.id != null && wp.id.startsWith("nav:")) {
+                        String tagKey = wp.id.substring(4);
+                        gtnhBridge.clearActiveWaypoint(tagKey);
+                        waypointManager.clearNavigatorWaypoints(tagKey);
+                    } else {
+                        waypointManager.removeWaypoint(wp);
+                    }
+                    if (lastHoveredWaypoint == wp) lastHoveredWaypoint = null;
+                }));
             }
         }
 

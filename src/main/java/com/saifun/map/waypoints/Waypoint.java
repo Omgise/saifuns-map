@@ -8,18 +8,7 @@ import java.util.UUID;
 public class Waypoint {
 
     public static final String GROUP_DEFAULT = "Default";
-    public static final String GROUP_BASE = "Base";
-    public static final String GROUP_ORES = "Ores";
-    public static final String GROUP_LOOT = "Loot";
     public static final String GROUP_DEATHS = "Deaths";
-
-    public static final String[] PRESET_GROUPS = {
-        GROUP_DEFAULT,
-        GROUP_BASE,
-        GROUP_ORES,
-        GROUP_LOOT,
-        GROUP_DEATHS
-    };
 
     public enum Type {
         NORMAL,
@@ -72,11 +61,9 @@ public class Waypoint {
     public Type type = Type.NORMAL;
     public IconType icon = IconType.PIN;
     public String group = GROUP_DEFAULT;
-    public boolean linkNether = false;
     public long createdAt;
     public transient long expiresAt = 0L;
     public transient CustomIconDrawer customIconDrawer = null;
-    public transient boolean projectedCrossDim = false;
 
     public Waypoint() {}
 
@@ -113,11 +100,8 @@ public class Waypoint {
             return type == Type.DEATH ? GROUP_DEATHS : GROUP_DEFAULT;
         }
         String trimmed = raw.trim();
-        for (String preset : PRESET_GROUPS) {
-            if (preset.equalsIgnoreCase(trimmed)) {
-                return preset;
-            }
-        }
+        if (GROUP_DEFAULT.equalsIgnoreCase(trimmed)) return GROUP_DEFAULT;
+        if (GROUP_DEATHS.equalsIgnoreCase(trimmed)) return GROUP_DEATHS;
         return trimmed.length() > 20 ? trimmed.substring(0, 20) : trimmed;
     }
 

@@ -1,6 +1,5 @@
 package com.saifun.map.gui;
 
-import com.saifun.map.config.MapConfig;
 import com.saifun.map.render.GLDraw;
 import com.saifun.map.render.WaypointIconRenderer;
 import com.saifun.map.util.Lang;
@@ -20,12 +19,11 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Advanced Waypoints Manager featuring:
- * - Preset & custom waypoint groups with 1-click group visibility toggle (RMB pill or toggle button)
+ * Clean minimalist Waypoints Manager featuring:
+ * - User-created waypoint groups (+ inline creation, LMB filter, RMB visibility toggle, Shift+RMB delete)
  * - Instant live search across waypoint names and groups
  * - Sorting by Distance, Name, or Date (newest first)
  * - Two-click "Delete All Deaths" bulk cleanup
- * - Overworld <-> Nether (x8 / div8) portal auto-link toggle
  * - JourneyMap importer
  */
 public class GuiWaypoints extends GuiScreen {
@@ -48,11 +46,13 @@ public class GuiWaypoints extends GuiScreen {
 
     private static final class GroupPill {
         final String group; // null = ALL
+        final boolean isAddButton;
         final String label;
         final int x, y, w, h;
 
-        GroupPill(String group, String label, int x, int y, int w, int h) {
+        GroupPill(String group, boolean isAddButton, String label, int x, int y, int w, int h) {
             this.group = group;
+            this.isAddButton = isAddButton;
             this.label = label;
             this.x = x;
             this.y = y;
@@ -69,6 +69,9 @@ public class GuiWaypoints extends GuiScreen {
     private final WaypointManager manager;
 
     private GuiTextField searchField;
+    private GuiTextField newGroupField;
+    private boolean addingGroup = false;
+
     private String searchQuery = "";
     private SortMode sortMode = SortMode.DISTANCE;
     private String selectedGroup = null; // null = ALL
@@ -109,6 +112,10 @@ public class GuiWaypoints extends GuiScreen {
         searchField.setMaxStringLength(48);
         searchField.setText(prevSearch);
         searchQuery = prevSearch;
+
+        newGroupField = new GuiTextField(this.fontRendererObj, panelX + 1, 51, Math.min(180, panelW - 110), 16);
+        newGroupField.setMaxStringLength(20);
+        addingGroup = false;
 
         refreshList();
         rebuildButtons();
@@ -175,16 +182,19 @@ public class GuiWaypoints extends GuiScreen {
 
     private void rebuildGroupPills() {
         groupPills.clear();
+        if (addingGroup) return;
+
         int panelW = getPanelW();
         int panelX = getPanelX();
-        int maxRight = panelX + panelW - (selectedGroup != null ? 88 : 2);
+        int rightReserve = (selectedGroup != null ? 88 : 2) + 24; // reserve room for [+] pill
+        int maxRight = panelX + panelW - rightReserve;
         int x = panelX;
         int y = 51;
         int h = 17;
 
         String allLabel = Lang.tr("saifunsmap.waypoints.group.all");
         int allW = Math.max(30, this.fontRendererObj.getStringWidth(allLabel) + 12);
-        groupPills.add(new GroupPill(null, allLabel, x, y, allW, h));
+        groupPills.add(new GroupPill(null, false, allLabel, x, y, allW, h));
         x += allW + 4;
 
         List<String> groups = manager.getAllGroupNames();
@@ -193,9 +203,12 @@ public class GuiWaypoints extends GuiScreen {
             String label = localizeGroup(g);
             int w = Math.max(34, this.fontRendererObj.getStringWidth(label) + 12);
             if (x + w > maxRight) break;
-            groupPills.add(new GroupPill(g, label, x, y, w, h));
+            groupPills.add(new GroupPill(g, false, label, x, y, w, h));
             x += w + 4;
         }
+
+        // Compact [+] button to add a custom group
+        groupPills.add(new GroupPill(null, true, "+", x, y, 19, h));
     }
 
     public static String localizeGroup(String group) {
@@ -204,9 +217,6 @@ public class GuiWaypoints extends GuiScreen {
         }
         String low = group.trim().toLowerCase(Locale.ROOT);
         if ("default".equals(low)) return Lang.tr("saifunsmap.group.default");
-        if ("base".equals(low)) return Lang.tr("saifunsmap.group.base");
-        if ("ores".equals(low)) return Lang.tr("saifunsmap.group.ores");
-        if ("loot".equals(low)) return Lang.tr("saifunsmap.group.loot");
         if ("deaths".equals(low)) return Lang.tr("saifunsmap.group.deaths");
         return group.trim();
     }
@@ -226,8 +236,11 @@ public class GuiWaypoints extends GuiScreen {
         this.buttonList.add(new ModernButton(12, panelX + panelW - dimW, 28, dimW, 18,
             Lang.tr(showAllDimensions ? "saifunsmap.waypoints.dims_all" : "saifunsmap.waypoints.dims_current")));
 
-        // Group visibility toggle button when a specific group is selected
-        if (selectedGroup != null) {
+        if (addingGroup) {
+            int fx = newGroupField.xPosition + newGroupField.width + 6;
+            this.buttonList.add(new ModernButton(22, fx, 50, 48, 18, Lang.tr("saifunsmap.common.save")).setAccent(true));
+            this.buttonList.add(new ModernButton(23, fx + 52, 50, 52, 18, Lang.tr("saifunsmap.common.cancel")));
+        } else if (selectedGroup != null) {
             boolean gOn = manager.isGroupEnabled(selectedGroup);
             this.buttonList.add(new ModernButton(21, panelX + panelW - 84, 51, 84, 17,
                 Lang.tr("saifunsmap.waypoints.group_toggle", Lang.onOff(gOn))).setAccent(gOn));
@@ -267,13 +280,12 @@ public class GuiWaypoints extends GuiScreen {
         this.buttonList.add(btnShare);
         this.buttonList.add(btnDel);
 
-        // Row 2: JourneyMap Importer | Delete All Deaths | Nether x8 Auto-Link | Close
+        // Row 2: Clean minimal bottom bar (Import JourneyMap | Clear Deaths | Close)
         int row2Y = bottomY + 23;
         int deathCount = manager.countDeaths();
-        int wImp = 114;
-        int wDeaths = 122;
-        int wNether = 114;
-        int wClose = panelW - (wImp + wDeaths + wNether + gap * 3);
+        int wImp = 148;
+        int wDeaths = 152;
+        int wClose = panelW - (wImp + wDeaths + gap * 2);
         int rx = panelX;
 
         this.buttonList.add(new ModernButton(10, rx, row2Y, wImp, 19, Lang.tr("saifunsmap.waypoints.import_jm")));
@@ -290,12 +302,19 @@ public class GuiWaypoints extends GuiScreen {
         this.buttonList.add(btnDelDeaths);
         rx += wDeaths + gap;
 
-        boolean autoNether = MapConfig.get().autoLinkNetherPortals;
-        this.buttonList.add(new ModernButton(14, rx, row2Y, wNether, 19,
-            Lang.tr("saifunsmap.waypoints.nether_link", Lang.onOff(autoNether))).setAccent(autoNether));
-        rx += wNether + gap;
+        this.buttonList.add(new ModernButton(99, rx, row2Y, Math.max(70, wClose), 19, Lang.tr("saifunsmap.common.close")));
+    }
 
-        this.buttonList.add(new ModernButton(99, rx, row2Y, Math.max(58, wClose), 19, Lang.tr("saifunsmap.common.close")));
+    private void commitNewGroup() {
+        String raw = newGroupField != null ? newGroupField.getText().trim() : "";
+        addingGroup = false;
+        if (!raw.isEmpty()) {
+            String added = manager.addCustomGroup(raw);
+            selectedGroup = added;
+            statusMessage = Lang.tr("saifunsmap.waypoints.status.group_created", localizeGroup(added));
+        }
+        refreshList();
+        rebuildButtons();
     }
 
     @Override
@@ -374,14 +393,6 @@ public class GuiWaypoints extends GuiScreen {
                     rebuildButtons();
                 }
                 break;
-            case 14: {
-                MapConfig cfg = MapConfig.get();
-                cfg.autoLinkNetherPortals = !cfg.autoLinkNetherPortals;
-                MapConfig.save();
-                manager.refreshRenderCache();
-                rebuildButtons();
-                break;
-            }
             case 20: {
                 SortMode[] vals = SortMode.values();
                 sortMode = vals[(sortMode.ordinal() + 1) % vals.length];
@@ -395,6 +406,14 @@ public class GuiWaypoints extends GuiScreen {
                     statusMessage = Lang.tr("saifunsmap.waypoints.status.group_toggled", localizeGroup(selectedGroup), Lang.onOff(nowOn));
                     rebuildButtons();
                 }
+                break;
+            case 22:
+                commitNewGroup();
+                break;
+            case 23:
+                addingGroup = false;
+                refreshList();
+                rebuildButtons();
                 break;
             case 99:
                 mc.displayGuiScreen(parent);
@@ -424,15 +443,39 @@ public class GuiWaypoints extends GuiScreen {
         if (searchField != null) {
             searchField.mouseClicked(mouseX, mouseY, mouseButton);
         }
+        if (addingGroup && newGroupField != null) {
+            newGroupField.mouseClicked(mouseX, mouseY, mouseButton);
+            return;
+        }
 
-        // Group pill clicks: LMB selects filter, RMB toggles entire group visibility!
+        // Group pill clicks: LMB selects filter, RMB toggles group visibility, Shift+RMB deletes custom group
         for (int i = 0; i < groupPills.size(); i++) {
             GroupPill p = groupPills.get(i);
             if (!p.hit(mouseX, mouseY)) continue;
-            if (mouseButton == 1 && p.group != null) {
-                boolean nowOn = manager.toggleGroupEnabled(p.group);
-                statusMessage = Lang.tr("saifunsmap.waypoints.status.group_toggled", p.label, Lang.onOff(nowOn));
+            if (p.isAddButton) {
+                addingGroup = true;
+                if (searchField != null) searchField.setFocused(false);
+                if (newGroupField != null) {
+                    newGroupField.setText("");
+                    newGroupField.setFocused(true);
+                }
+                rebuildGroupPills();
                 rebuildButtons();
+                return;
+            }
+            if (mouseButton == 1 && p.group != null) {
+                if (isShiftKeyDown() && manager.removeCustomGroup(p.group)) {
+                    if (p.group.equalsIgnoreCase(selectedGroup)) {
+                        selectedGroup = null;
+                    }
+                    statusMessage = Lang.tr("saifunsmap.waypoints.status.group_deleted", p.label);
+                    refreshList();
+                    rebuildButtons();
+                } else {
+                    boolean nowOn = manager.toggleGroupEnabled(p.group);
+                    statusMessage = Lang.tr("saifunsmap.waypoints.status.group_toggled", p.label, Lang.onOff(nowOn));
+                    rebuildButtons();
+                }
             } else if (mouseButton == 0) {
                 selectedGroup = p.group;
                 scrollOffset = 0;
@@ -468,6 +511,21 @@ public class GuiWaypoints extends GuiScreen {
 
     @Override
     protected void keyTyped(char typedChar, int keyCode) {
+        if (addingGroup && newGroupField != null) {
+            if (keyCode == Keyboard.KEY_ESCAPE) {
+                addingGroup = false;
+                refreshList();
+                rebuildButtons();
+                return;
+            }
+            if (keyCode == Keyboard.KEY_RETURN || keyCode == Keyboard.KEY_NUMPADENTER) {
+                commitNewGroup();
+                return;
+            }
+            newGroupField.textboxKeyTyped(typedChar, keyCode);
+            return;
+        }
+
         if (keyCode == Keyboard.KEY_ESCAPE) {
             if (searchField != null && searchField.isFocused() && !searchField.getText().isEmpty()) {
                 searchField.setText("");
@@ -495,6 +553,9 @@ public class GuiWaypoints extends GuiScreen {
     public void updateScreen() {
         if (searchField != null) {
             searchField.updateCursorCounter();
+        }
+        if (addingGroup && newGroupField != null) {
+            newGroupField.updateCursorCounter();
         }
     }
 
@@ -532,39 +593,59 @@ public class GuiWaypoints extends GuiScreen {
             }
         }
 
-        // Group filter / visibility pills
-        for (int i = 0; i < groupPills.size(); i++) {
-            GroupPill p = groupPills.get(i);
-            boolean activeFilter = (p.group == null && selectedGroup == null)
-                || (p.group != null && p.group.equalsIgnoreCase(selectedGroup));
-            boolean groupVisible = p.group == null || manager.isGroupEnabled(p.group);
-            boolean hov = p.hit(mouseX, mouseY);
-
-            int bg;
-            int border;
-            int textCol;
-            if (!groupVisible) {
-                bg = activeFilter ? 0x99334155 : (hov ? 0x881E293B : 0x550F172A);
-                border = activeFilter ? 0xAA94A3B8 : 0x55475569;
-                textCol = 0xFF64748B;
-            } else if (activeFilter) {
-                bg = 0xDD2563EB;
-                border = 0xFF93C5FD;
-                textCol = 0xFFFFFFFF;
-            } else if (hov) {
-                bg = 0xCC1E293B;
-                border = 0xAA4F8FF7;
-                textCol = 0xFFF1F5F9;
-            } else {
-                bg = 0xAA131924;
-                border = 0x66334155;
-                textCol = 0xFFCBD5E1;
+        // Group row: either inline new-group input OR group filter pills
+        if (addingGroup && newGroupField != null) {
+            newGroupField.drawTextBox();
+            GLDraw.ensureBlend();
+            if (newGroupField.getText().isEmpty()) {
+                this.fontRendererObj.drawStringWithShadow(
+                    Lang.tr("saifunsmap.waypoints.new_group_hint"),
+                    newGroupField.xPosition + 4, newGroupField.yPosition + 4, 0xFF64748B
+                );
             }
+        } else {
+            for (int i = 0; i < groupPills.size(); i++) {
+                GroupPill p = groupPills.get(i);
+                boolean hov = p.hit(mouseX, mouseY);
+                if (p.isAddButton) {
+                    int bg = hov ? 0xDD2563EB : 0xAA131924;
+                    int border = hov ? 0xFF93C5FD : 0x77334155;
+                    GLDraw.rect(p.x, p.y, p.x + p.w, p.y + p.h, bg);
+                    GLDraw.rectOutline(p.x, p.y, p.x + p.w, p.y + p.h, 1.0, border);
+                    drawCenteredString(this.fontRendererObj, "+", p.x + p.w / 2, p.y + 4, hov ? 0xFFFFFFFF : 0xFF93C5FD);
+                    continue;
+                }
 
-            GLDraw.rect(p.x, p.y, p.x + p.w, p.y + p.h, bg);
-            GLDraw.rectOutline(p.x, p.y, p.x + p.w, p.y + p.h, 1.0, border);
-            String text = groupVisible ? p.label : ("\u00a7m" + p.label);
-            drawCenteredString(this.fontRendererObj, text, p.x + p.w / 2, p.y + 4, textCol);
+                boolean activeFilter = (p.group == null && selectedGroup == null)
+                    || (p.group != null && p.group.equalsIgnoreCase(selectedGroup));
+                boolean groupVisible = p.group == null || manager.isGroupEnabled(p.group);
+
+                int bg;
+                int border;
+                int textCol;
+                if (!groupVisible) {
+                    bg = activeFilter ? 0x99334155 : (hov ? 0x881E293B : 0x550F172A);
+                    border = activeFilter ? 0xAA94A3B8 : 0x55475569;
+                    textCol = 0xFF64748B;
+                } else if (activeFilter) {
+                    bg = 0xDD2563EB;
+                    border = 0xFF93C5FD;
+                    textCol = 0xFFFFFFFF;
+                } else if (hov) {
+                    bg = 0xCC1E293B;
+                    border = 0xAA4F8FF7;
+                    textCol = 0xFFF1F5F9;
+                } else {
+                    bg = 0xAA131924;
+                    border = 0x66334155;
+                    textCol = 0xFFCBD5E1;
+                }
+
+                GLDraw.rect(p.x, p.y, p.x + p.w, p.y + p.h, bg);
+                GLDraw.rectOutline(p.x, p.y, p.x + p.w, p.y + p.h, 1.0, border);
+                String text = groupVisible ? p.label : ("\u00a7m" + p.label);
+                drawCenteredString(this.fontRendererObj, text, p.x + p.w / 2, p.y + 4, textCol);
+            }
         }
 
         // Waypoints scroll list
@@ -602,24 +683,16 @@ public class GuiWaypoints extends GuiScreen {
             int nameCol = vis ? 0xFFF1F5F9 : 0xFF64748B;
             this.fontRendererObj.drawStringWithShadow(wp.name, panelX + 26, ry + 7, nameCol);
 
-            // Compact group badge + Nether x8 indicator
+            // Compact group badge (only when not Default)
             int badgeX = panelX + 26 + this.fontRendererObj.getStringWidth(wp.name) + 6;
-            String grpLabel = localizeGroup(wp.getEffectiveGroup());
             if (!Waypoint.GROUP_DEFAULT.equalsIgnoreCase(wp.getEffectiveGroup())) {
+                String grpLabel = localizeGroup(wp.getEffectiveGroup());
                 int gw = this.fontRendererObj.getStringWidth(grpLabel) + 6;
-                if (badgeX + gw < panelX + panelW - 140) {
+                if (badgeX + gw < panelX + panelW - 134) {
                     int gBg = manager.isGroupEnabled(wp.getEffectiveGroup()) ? 0x771E293B : 0x55334155;
                     GLDraw.rect(badgeX, ry + 5, badgeX + gw, ry + 16, gBg);
                     this.fontRendererObj.drawStringWithShadow(grpLabel, badgeX + 3, ry + 7, vis ? 0xFF93C5FD : 0xFF64748B);
-                    badgeX += gw + 4;
                 }
-            }
-
-            boolean linked = (wp.dimensionId == 0 || wp.dimensionId == -1)
-                && (wp.linkNether || (MapConfig.get().autoLinkNetherPortals && wp.getEffectiveIcon() == Waypoint.IconType.PORTAL));
-            if (linked && badgeX + 20 < panelX + panelW - 132) {
-                GLDraw.rect(badgeX, ry + 5, badgeX + 18, ry + 16, 0x88581C87);
-                this.fontRendererObj.drawStringWithShadow("\u00d78", badgeX + 3, ry + 7, 0xFFE9D5FF);
             }
 
             double dist = Math.hypot(wp.x - px, wp.z - pz);

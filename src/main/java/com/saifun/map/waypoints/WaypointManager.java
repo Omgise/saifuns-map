@@ -65,9 +65,13 @@ public class WaypointManager {
         0xF8FAFC  // White
     };
 
+    private static final class GroupStorage {
+        List<String> customGroups = new ArrayList<>();
+        Set<String> hiddenGroups = new HashSet<>();
+    }
+
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Type LIST_TYPE = new TypeToken<List<Waypoint>>() {}.getType();
-    private static final Type STRING_SET_TYPE = new TypeToken<Set<String>>() {}.getType();
     private static final Random RANDOM = new Random();
 
     // Parses standard GTNH JourneyMap shared waypoints (including commas/parens inside quotes):
@@ -78,6 +82,7 @@ public class WaypointManager {
 
     private final MapWorldCache worldCache;
     private final List<Waypoint> waypoints = new ArrayList<>();
+    private final List<String> customGroups = new ArrayList<>();
     private final Set<String> hiddenGroupsLower = new HashSet<>();
     private volatile Map<Integer, List<Waypoint>> dimCache = Collections.emptyMap();
     private volatile String loadedWorldId = null;
@@ -96,41 +101,11 @@ public class WaypointManager {
             dimCache = Collections.emptyMap();
             return;
         }
-        boolean autoLinkPortals = MapConfig.get().autoLinkNetherPortals;
         Map<Integer, List<Waypoint>> map = new HashMap<>();
-
         for (int i = 0; i < waypoints.size(); i++) {
             Waypoint wp = waypoints.get(i);
             if (!isWaypointVisible(wp)) continue;
-
             map.computeIfAbsent(wp.dimensionId, k -> new ArrayList<>()).add(wp);
-
-            // Auto-project Overworld (0) <-> Nether (-1) at x8 / div8 scale when enabled
-            if (!wp.temporary && (wp.dimensionId == 0 || wp.dimensionId == -1)) {
-                boolean shouldLink = wp.linkNether
-                    || (autoLinkPortals && wp.getEffectiveIcon() == Waypoint.IconType.PORTAL);
-                if (shouldLink) {
-                    int targetDim = (wp.dimensionId == 0) ? -1 : 0;
-                    int px = (targetDim == -1) ? Math.floorDiv(wp.x, 8) : (wp.x * 8);
-                    int pz = (targetDim == -1) ? Math.floorDiv(wp.z, 8) : (wp.z * 8);
-                    String suffix = (targetDim == -1) ? " [\u00f78]" : " [\u00d78]";
-                    Waypoint proj = new Waypoint(
-                        wp.name + suffix,
-                        wp.initials,
-                        px, wp.y, pz,
-                        targetDim,
-                        wp.color,
-                        Waypoint.Type.NORMAL
-                    );
-                    proj.id = "link:" + wp.id;
-                    proj.temporary = true;
-                    proj.projectedCrossDim = true;
-                    proj.icon = wp.getEffectiveIcon();
-                    proj.group = wp.getEffectiveGroup();
-                    proj.linkNether = true;
-                    map.computeIfAbsent(targetDim, k -> new ArrayList<>()).add(proj);
-                }
-            }
         }
         for (Map.Entry<Integer, List<Waypoint>> e : map.entrySet()) {
             e.setValue(Collections.unmodifiableList(e.getValue()));
@@ -161,6 +136,48 @@ public class WaypointManager {
         return next;
     }
 
+    public synchronized String addCustomGroup(String rawName) {
+        ensureLoaded();
+        String name = Waypoint.normalizeGroup(rawName, Waypoint.Type.NORMAL);
+        if (Waypoint.GROUP_DEFAULT.equalsIgnoreCase(name) || Waypoint.GROUP_DEATHS.equalsIgnoreCase(name)) {
+            return name;
+        }
+        for (String existing : customGroups) {
+            if (existing.equalsIgnoreCase(name)) {
+                return existing;
+            }
+        }
+        customGroups.add(name);
+        saveGroups();
+        return name;
+    }
+
+    public synchronized boolean removeCustomGroup(String group) {
+        ensureLoaded();
+        if (group == null || Waypoint.GROUP_DEFAULT.equalsIgnoreCase(group) || Waypoint.GROUP_DEATHS.equalsIgnoreCase(group)) {
+            return false;
+        }
+        boolean removed = customGroups.removeIf(g -> g.equalsIgnoreCase(group));
+        boolean movedAny = false;
+        for (Waypoint wp : waypoints) {
+            if (!wp.temporary && group.equalsIgnoreCase(wp.getEffectiveGroup())) {
+                wp.group = Waypoint.GROUP_DEFAULT;
+                movedAny = true;
+            }
+        }
+        hiddenGroupsLower.remove(group.trim().toLowerCase(Locale.ROOT));
+        if (removed || movedAny) {
+            saveGroups();
+            if (movedAny) {
+                save();
+            } else {
+                rebuildDimCache();
+            }
+            return true;
+        }
+        return false;
+    }
+
     public boolean isWaypointVisible(Waypoint wp) {
         if (wp == null || !wp.enabled) return false;
         if (wp.type == Waypoint.Type.NAVIGATOR || wp.type == Waypoint.Type.SHARED_BEACON) {
@@ -169,11 +186,15 @@ public class WaypointManager {
         return isGroupEnabled(wp.getEffectiveGroup());
     }
 
+    /**
+     * Returns only Default + user-created custom groups + active waypoint groups (e.g. Deaths only when death waypoints exist).
+     */
     public synchronized List<String> getAllGroupNames() {
         ensureLoaded();
         LinkedHashSet<String> groups = new LinkedHashSet<>();
-        for (String preset : Waypoint.PRESET_GROUPS) {
-            groups.add(preset);
+        groups.add(Waypoint.GROUP_DEFAULT);
+        for (String cg : customGroups) {
+            groups.add(cg);
         }
         for (Waypoint wp : waypoints) {
             if (!wp.temporary) {
@@ -227,6 +248,7 @@ public class WaypointManager {
     public synchronized void clearSession() {
         save();
         waypoints.clear();
+        customGroups.clear();
         hiddenGroupsLower.clear();
         dimCache = Collections.emptyMap();
         loadedWorldId = null;
@@ -235,6 +257,7 @@ public class WaypointManager {
 
     private synchronized void loadForWorld(String worldId) {
         waypoints.clear();
+        customGroups.clear();
         hiddenGroupsLower.clear();
         loadedWorldId = worldId;
         File file = getWaypointsFile(worldId);
@@ -267,16 +290,28 @@ public class WaypointManager {
         File gFile = getGroupsFile(worldId);
         if (!gFile.exists()) return;
         try (InputStreamReader reader = new InputStreamReader(new FileInputStream(gFile), StandardCharsets.UTF_8)) {
-            Set<String> loaded = GSON.fromJson(reader, STRING_SET_TYPE);
-            if (loaded != null) {
-                for (String g : loaded) {
-                    if (g != null && !g.trim().isEmpty()) {
-                        hiddenGroupsLower.add(g.trim().toLowerCase(Locale.ROOT));
+            GroupStorage storage = GSON.fromJson(reader, GroupStorage.class);
+            if (storage != null) {
+                if (storage.customGroups != null) {
+                    for (String g : storage.customGroups) {
+                        if (g != null && !g.trim().isEmpty()) {
+                            String norm = Waypoint.normalizeGroup(g, Waypoint.Type.NORMAL);
+                            if (!Waypoint.GROUP_DEFAULT.equalsIgnoreCase(norm) && !Waypoint.GROUP_DEATHS.equalsIgnoreCase(norm)) {
+                                customGroups.add(norm);
+                            }
+                        }
+                    }
+                }
+                if (storage.hiddenGroups != null) {
+                    for (String g : storage.hiddenGroups) {
+                        if (g != null && !g.trim().isEmpty()) {
+                            hiddenGroupsLower.add(g.trim().toLowerCase(Locale.ROOT));
+                        }
                     }
                 }
             }
         } catch (Exception e) {
-            SaifunsMapMod.LOG.warn("Failed to load hidden waypoint groups from {}: {}", gFile, e.getMessage());
+            SaifunsMapMod.LOG.warn("Failed to load waypoint groups from {}: {}", gFile, e.getMessage());
         }
     }
 
@@ -286,11 +321,14 @@ public class WaypointManager {
         try {
             File parent = gFile.getParentFile();
             if (parent != null && !parent.exists()) parent.mkdirs();
+            GroupStorage storage = new GroupStorage();
+            storage.customGroups = new ArrayList<>(customGroups);
+            storage.hiddenGroups = new HashSet<>(hiddenGroupsLower);
             try (OutputStreamWriter writer = new OutputStreamWriter(new FileOutputStream(gFile), StandardCharsets.UTF_8)) {
-                GSON.toJson(hiddenGroupsLower, STRING_SET_TYPE, writer);
+                GSON.toJson(storage, GroupStorage.class, writer);
             }
         } catch (Exception e) {
-            SaifunsMapMod.LOG.warn("Failed to save hidden waypoint groups to {}: {}", gFile, e.getMessage());
+            SaifunsMapMod.LOG.warn("Failed to save waypoint groups to {}: {}", gFile, e.getMessage());
         }
     }
 
@@ -327,13 +365,12 @@ public class WaypointManager {
     }
 
     /**
-     * Returns real (non-projected) waypoints for management UI (includes disabled & hidden-group waypoints).
+     * Returns waypoints for management UI (includes disabled & hidden-group waypoints).
      */
     public synchronized List<Waypoint> getEditableWaypoints(boolean allDimensions, int currentDim) {
         ensureLoaded();
         List<Waypoint> out = new ArrayList<>();
         for (Waypoint wp : waypoints) {
-            if (wp.projectedCrossDim) continue;
             if (!allDimensions && wp.dimensionId != currentDim) continue;
             out.add(wp);
         }

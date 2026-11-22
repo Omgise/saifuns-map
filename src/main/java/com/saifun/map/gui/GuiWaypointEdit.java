@@ -11,18 +11,18 @@ import net.minecraft.client.gui.GuiTextField;
 import org.lwjgl.input.Keyboard;
 
 import java.util.Collections;
+import java.util.List;
 
 /**
- * Sleek modern Add / Edit Waypoint dialog featuring:
- * - Preset & custom waypoint group selector
- * - Overworld <-> Nether (x8 / div8) cross-dimension link toggle
+ * Clean minimalist Add / Edit Waypoint dialog featuring:
+ * - Freeform user-created group input + quick pills for existing user groups
  * - 12-icon pixel-art selector
  * - Full interactive HSV Color Picker + #RRGGBB hex + 12 quick swatches
  */
 public class GuiWaypointEdit extends GuiScreen {
 
     private static final int PANEL_W = 296;
-    private static final int PANEL_H = 274;
+    private static final int PANEL_H = 268;
 
     private final GuiScreen parent;
     private final WaypointManager manager;
@@ -40,7 +40,7 @@ public class GuiWaypointEdit extends GuiScreen {
     private int currentColor;
     private Waypoint.IconType currentIcon;
     private boolean enabled;
-    private boolean linkNether;
+    private List<String> existingGroups = Collections.emptyList();
 
     public GuiWaypointEdit(
         GuiScreen parent,
@@ -75,9 +75,16 @@ public class GuiWaypointEdit extends GuiScreen {
         this.defaultZ = editing != null ? editing.z : z;
         this.defaultDim = editing != null ? editing.dimensionId : dim;
         this.enabled = editing == null || editing.enabled;
-        this.linkNether = editing != null && editing.linkNether;
         this.currentColor = editing != null ? (editing.color & 0xFFFFFF) : (presetColor & 0xFFFFFF);
         this.currentIcon = editing != null ? editing.getEffectiveIcon() : Waypoint.IconType.PIN;
+    }
+
+    private boolean showGroupBar() {
+        return existingGroups.size() > 1;
+    }
+
+    private int getEffectivePanelH() {
+        return showGroupBar() ? PANEL_H : (PANEL_H - 18);
     }
 
     @Override
@@ -85,16 +92,18 @@ public class GuiWaypointEdit extends GuiScreen {
     public void initGui() {
         Keyboard.enableRepeatEvents(true);
         this.buttonList.clear();
+        this.existingGroups = manager.getAllGroupNames();
 
-        // Preserve user edits across window resizes (F11 / GUI scale changes)
         String prevName = nameField != null ? nameField.getText() : defaultName;
         String prevGroup = groupField != null ? groupField.getText() : (editing != null ? editing.getEffectiveGroup() : Waypoint.GROUP_DEFAULT);
         String prevX = xField != null ? xField.getText() : String.valueOf(defaultX);
         String prevY = yField != null ? yField.getText() : String.valueOf(defaultY);
         String prevZ = zField != null ? zField.getText() : String.valueOf(defaultZ);
 
+        int panelH = getEffectivePanelH();
         int panelX = (this.width - PANEL_W) / 2;
-        int panelY = Math.max(8, (this.height - PANEL_H) / 2);
+        int panelY = Math.max(8, (this.height - panelH) / 2);
+        int gOff = showGroupBar() ? 18 : 0;
 
         nameField = new GuiTextField(this.fontRendererObj, panelX + 12, panelY + 30, 166, 16);
         nameField.setMaxStringLength(48);
@@ -114,24 +123,16 @@ public class GuiWaypointEdit extends GuiScreen {
         zField = new GuiTextField(this.fontRendererObj, panelX + 198, panelY + 60, 86, 16);
         zField.setText(prevZ);
 
-        // Group preset pills: panelY + 82..96
-        // Icon strip: panelY + 110..132
-        // Interactive HSV Color Picker (left side) + Hex + Live Preview + Presets (right side)
-        colorPicker = new ColorPickerWidget(panelX + 12, panelY + 139, 92, 14, currentColor);
+        colorPicker = new ColorPickerWidget(panelX + 12, panelY + 120 + gOff, 92, 14, currentColor);
 
-        hexField = new GuiTextField(this.fontRendererObj, panelX + 134, panelY + 167, 72, 16);
+        hexField = new GuiTextField(this.fontRendererObj, panelX + 134, panelY + 148 + gOff, 74, 16);
         hexField.setMaxStringLength(7);
         hexField.setText(colorPicker.getHexString());
 
-        this.buttonList.add(new ModernButton(2, panelX + 210, panelY + 166, 74, 18, Lang.tr("saifunsmap.wpedit.random")));
-        this.buttonList.add(new ModernButton(1, panelX + 134, panelY + 215, 72, 18, Lang.tr("saifunsmap.wpedit.enabled", Lang.onOff(enabled))));
-        ModernButton btnNether = new ModernButton(3, panelX + 210, panelY + 215, 74, 18,
-            Lang.tr("saifunsmap.wpedit.nether_link", Lang.onOff(linkNether))).setAccent(linkNether);
-        btnNether.enabled = (defaultDim == 0 || defaultDim == -1);
-        this.buttonList.add(btnNether);
-
-        this.buttonList.add(new ModernButton(10, panelX + 12, panelY + 244, 132, 20, Lang.tr("saifunsmap.common.save")).setAccent(true));
-        this.buttonList.add(new ModernButton(11, panelX + 152, panelY + 244, 132, 20, Lang.tr("saifunsmap.common.cancel")));
+        this.buttonList.add(new ModernButton(1, panelX + 134, panelY + 194 + gOff, 73, 18, Lang.tr("saifunsmap.wpedit.enabled", Lang.onOff(enabled))));
+        this.buttonList.add(new ModernButton(2, panelX + 211, panelY + 194 + gOff, 73, 18, Lang.tr("saifunsmap.wpedit.random")));
+        this.buttonList.add(new ModernButton(10, panelX + 12, panelY + 222 + gOff, 132, 20, Lang.tr("saifunsmap.common.save")).setAccent(true));
+        this.buttonList.add(new ModernButton(11, panelX + 152, panelY + 222 + gOff, 132, 20, Lang.tr("saifunsmap.common.cancel")));
     }
 
     @Override
@@ -148,12 +149,6 @@ public class GuiWaypointEdit extends GuiScreen {
             currentColor = WaypointManager.pickRandomColor();
             colorPicker.setRgb(currentColor);
             hexField.setText(colorPicker.getHexString());
-        } else if (button.id == 3) {
-            linkNether = !linkNether;
-            button.displayString = Lang.tr("saifunsmap.wpedit.nether_link", Lang.onOff(linkNether));
-            if (button instanceof ModernButton) {
-                ((ModernButton) button).setAccent(linkNether);
-            }
         } else if (button.id == 10) {
             saveAndClose();
         } else if (button.id == 11) {
@@ -167,6 +162,9 @@ public class GuiWaypointEdit extends GuiScreen {
         String initials = Waypoint.normalizeInitials(editing != null ? editing.initials : null, name);
         Waypoint.Type wpType = editing != null ? editing.type : Waypoint.Type.NORMAL;
         String group = Waypoint.normalizeGroup(groupField.getText(), wpType);
+        if (!Waypoint.GROUP_DEFAULT.equalsIgnoreCase(group) && !Waypoint.GROUP_DEATHS.equalsIgnoreCase(group)) {
+            group = manager.addCustomGroup(group);
+        }
         int x = parseIntSafe(xField.getText(), defaultX);
         int y = parseIntSafe(yField.getText(), defaultY);
         int z = parseIntSafe(zField.getText(), defaultZ);
@@ -181,14 +179,12 @@ public class GuiWaypointEdit extends GuiScreen {
             editing.color = currentColor;
             editing.icon = currentIcon;
             editing.enabled = enabled;
-            editing.linkNether = linkNether;
             manager.save();
         } else {
             Waypoint created = new Waypoint(name, initials, x, y, z, defaultDim, currentColor, Waypoint.Type.NORMAL);
             created.group = group;
             created.icon = currentIcon;
             created.enabled = enabled;
-            created.linkNether = linkNether;
             manager.addWaypoint(created);
         }
         this.mc.displayGuiScreen(parent);
@@ -260,26 +256,34 @@ public class GuiWaypointEdit extends GuiScreen {
             return;
         }
 
+        int panelH = getEffectivePanelH();
         int panelX = (this.width - PANEL_W) / 2;
-        int panelY = Math.max(8, (this.height - PANEL_H) / 2);
+        int panelY = Math.max(8, (this.height - panelH) / 2);
+        int gOff = showGroupBar() ? 18 : 0;
 
-        // 5 quick preset group pills
-        int pillY = panelY + 81;
-        int pillH = 14;
-        int pillGap = 4;
-        int pillW = (PANEL_W - 24 - pillGap * (Waypoint.PRESET_GROUPS.length - 1)) / Waypoint.PRESET_GROUPS.length;
-        for (int i = 0; i < Waypoint.PRESET_GROUPS.length; i++) {
-            int px = panelX + 12 + i * (pillW + pillGap);
-            if (mouseX >= px && mouseX <= px + pillW && mouseY >= pillY && mouseY <= pillY + pillH) {
-                groupField.setText(Waypoint.PRESET_GROUPS[i]);
-                return;
+        // User-created group quick pills (only rendered when user has custom/death groups)
+        if (showGroupBar()) {
+            int pillY = panelY + 80;
+            int pillH = 14;
+            int px = panelX + 12;
+            int maxR = panelX + PANEL_W - 12;
+            for (int i = 0; i < existingGroups.size(); i++) {
+                String g = existingGroups.get(i);
+                String lbl = GuiWaypoints.localizeGroup(g);
+                int pw = Math.max(30, this.fontRendererObj.getStringWidth(lbl) + 8);
+                if (px + pw > maxR) break;
+                if (mouseX >= px && mouseX <= px + pw && mouseY >= pillY && mouseY <= pillY + pillH) {
+                    groupField.setText(g);
+                    return;
+                }
+                px += pw + 4;
             }
         }
 
         // 12-icon pixel-art selector strip
         Waypoint.IconType[] icons = Waypoint.IconType.values();
         int iconBaseX = panelX + 12;
-        int iconBaseY = panelY + 110;
+        int iconBaseY = panelY + 91 + gOff;
         int iconCell = 22;
         for (int i = 0; i < icons.length; i++) {
             int ix = iconBaseX + i * 23;
@@ -291,7 +295,7 @@ public class GuiWaypointEdit extends GuiScreen {
 
         // Quick 2x6 preset color swatches on the right side
         int swatchBaseX = panelX + 134;
-        int swatchBaseY = panelY + 189;
+        int swatchBaseY = panelY + 170 + gOff;
         for (int i = 0; i < WaypointManager.PALETTE.length; i++) {
             int col = i % 6;
             int row = i / 6;
@@ -335,12 +339,14 @@ public class GuiWaypointEdit extends GuiScreen {
 
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
+        int panelH = getEffectivePanelH();
         int panelX = (this.width - PANEL_W) / 2;
-        int panelY = Math.max(8, (this.height - PANEL_H) / 2);
+        int panelY = Math.max(8, (this.height - panelH) / 2);
+        int gOff = showGroupBar() ? 18 : 0;
 
         GLDraw.ensureBlend();
-        GLDraw.rect(panelX, panelY, panelX + PANEL_W, panelY + PANEL_H, 0xEC0C1017);
-        GLDraw.rectOutline(panelX, panelY, panelX + PANEL_W, panelY + PANEL_H, 1.0, 0x88334155);
+        GLDraw.rect(panelX, panelY, panelX + PANEL_W, panelY + panelH, 0xEC0C1017);
+        GLDraw.rectOutline(panelX, panelY, panelX + PANEL_W, panelY + panelH, 1.0, 0x88334155);
         GLDraw.rect(panelX, panelY, panelX + PANEL_W, panelY + 2, 0xFF000000 | currentColor);
 
         String title = editing != null
@@ -353,7 +359,7 @@ public class GuiWaypointEdit extends GuiScreen {
         this.fontRendererObj.drawStringWithShadow("X", panelX + 12, panelY + 50, 0xFF94A3B8);
         this.fontRendererObj.drawStringWithShadow("Y", panelX + 105, panelY + 50, 0xFF94A3B8);
         this.fontRendererObj.drawStringWithShadow("Z", panelX + 198, panelY + 50, 0xFF94A3B8);
-        this.fontRendererObj.drawStringWithShadow(Lang.tr("saifunsmap.wpedit.icon"), panelX + 12, panelY + 99, 0xFF94A3B8);
+        this.fontRendererObj.drawStringWithShadow(Lang.tr("saifunsmap.wpedit.icon"), panelX + 12, panelY + 80 + gOff, 0xFF94A3B8);
 
         nameField.drawTextBox();
         groupField.drawTextBox();
@@ -361,29 +367,33 @@ public class GuiWaypointEdit extends GuiScreen {
         yField.drawTextBox();
         zField.drawTextBox();
 
-        // 5 quick preset group pills
-        String curGrp = groupField.getText().trim();
-        int pillY = panelY + 81;
-        int pillH = 14;
-        int pillGap = 4;
-        int pillW = (PANEL_W - 24 - pillGap * (Waypoint.PRESET_GROUPS.length - 1)) / Waypoint.PRESET_GROUPS.length;
-        for (int i = 0; i < Waypoint.PRESET_GROUPS.length; i++) {
-            String preset = Waypoint.PRESET_GROUPS[i];
-            int px = panelX + 12 + i * (pillW + pillGap);
-            boolean sel = preset.equalsIgnoreCase(curGrp);
-            boolean hov = mouseX >= px && mouseX <= px + pillW && mouseY >= pillY && mouseY <= pillY + pillH;
-            int bg = sel ? 0xDD2563EB : (hov ? 0xBB1E293B : 0x88111622);
-            int border = sel ? 0xFF93C5FD : (hov ? 0xAA64748B : 0x55334155);
-            GLDraw.rect(px, pillY, px + pillW, pillY + pillH, bg);
-            GLDraw.rectOutline(px, pillY, px + pillW, pillY + pillH, 1.0, border);
-            GLDraw.drawCenteredText(this.fontRendererObj, GuiWaypoints.localizeGroup(preset),
-                px + pillW * 0.5, pillY + 3.5, 0.78f, sel ? 0xFFFFFFFF : 0xFFCBD5E1);
+        // User-created group quick pills (hidden when only Default exists!)
+        if (showGroupBar()) {
+            String curGrp = groupField.getText().trim();
+            int pillY = panelY + 80;
+            int pillH = 14;
+            int px = panelX + 12;
+            int maxR = panelX + PANEL_W - 12;
+            for (int i = 0; i < existingGroups.size(); i++) {
+                String g = existingGroups.get(i);
+                String lbl = GuiWaypoints.localizeGroup(g);
+                int pw = Math.max(30, this.fontRendererObj.getStringWidth(lbl) + 8);
+                if (px + pw > maxR) break;
+                boolean sel = g.equalsIgnoreCase(curGrp);
+                boolean hov = mouseX >= px && mouseX <= px + pw && mouseY >= pillY && mouseY <= pillY + pillH;
+                int bg = sel ? 0xDD2563EB : (hov ? 0xBB1E293B : 0x88111622);
+                int border = sel ? 0xFF93C5FD : (hov ? 0xAA64748B : 0x55334155);
+                GLDraw.rect(px, pillY, px + pw, pillY + pillH, bg);
+                GLDraw.rectOutline(px, pillY, px + pw, pillY + pillH, 1.0, border);
+                GLDraw.drawCenteredText(this.fontRendererObj, lbl, px + pw * 0.5, pillY + 3.5, 0.78f, sel ? 0xFFFFFFFF : 0xFFCBD5E1);
+                px += pw + 4;
+            }
         }
 
         // 12-icon pixel-art selector strip
         Waypoint.IconType[] icons = Waypoint.IconType.values();
         int iconBaseX = panelX + 12;
-        int iconBaseY = panelY + 110;
+        int iconBaseY = panelY + 91 + gOff;
         int iconCell = 22;
         String hoveredIconName = null;
         for (int i = 0; i < icons.length; i++) {
@@ -406,7 +416,7 @@ public class GuiWaypointEdit extends GuiScreen {
 
         // Live waypoint icon preview + Hex code input
         int prevX = panelX + 134;
-        int prevY = panelY + 139;
+        int prevY = panelY + 120 + gOff;
         GLDraw.rect(prevX, prevY, prevX + 24, prevY + 24, 0xFF0A0D12);
         GLDraw.rectOutline(prevX, prevY, prevX + 24, prevY + 24, 1.0, 0x88334155);
         WaypointIconRenderer.drawIcon(currentIcon, prevX + 12.0, prevY + 12.0, 18.0, currentColor, 1.0f);
@@ -417,7 +427,7 @@ public class GuiWaypointEdit extends GuiScreen {
 
         // Compact 2x6 quick preset swatches
         int swatchBaseX = panelX + 134;
-        int swatchBaseY = panelY + 189;
+        int swatchBaseY = panelY + 170 + gOff;
         for (int i = 0; i < WaypointManager.PALETTE.length; i++) {
             int col = i % 6;
             int row = i / 6;
