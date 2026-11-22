@@ -28,6 +28,8 @@ public interface IGtnhLayerBridge {
 
     boolean isAvailable();
 
+    boolean hasActiveLayers();
+
     void onWorldMapOpened();
 
     void onWorldMapClosed();

@@ -260,9 +260,10 @@ public class MinimapRenderer {
         for (int rz = minRz; rz <= maxRz; rz++) {
             for (int rx = minRx; rx <= maxRx; rx++) {
                 MapRegion region = worldCache.getRegionIfLoaded(rx, rz);
-                if (region == null || !region.hasSurfaceData()) continue;
+                if (region == null) continue;
+                if (caveMode ? !region.hasCaveData() : !region.hasSurfaceData()) continue;
 
-                region.getOrUpdateTexture(caveMode, linearFilter);
+                if (region.getOrUpdateTexture(caveMode, linearFilter) == 0) continue;
 
                 double wx1 = rx * (double) MapRegion.SIZE;
                 double wz1 = rz * (double) MapRegion.SIZE;

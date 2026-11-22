@@ -114,10 +114,11 @@ public class GuiWorldMap extends GuiScreen {
     private int lastClickX = 0;
     private int lastClickY = 0;
 
-    // Smooth open/close zoom + fade transition
+    // Smooth open/close zoom + fade transition & GTNH overlay focus dimming
     private static final double OPEN_DURATION_SEC = 0.24;
     private static final double CLOSE_DURATION_SEC = 0.14;
     private double openProgress = 0.0;
+    private double gtnhFocusAmount = 0.0;
     private boolean closing = false;
 
     // Right-click context menu
@@ -162,6 +163,7 @@ public class GuiWorldMap extends GuiScreen {
             caveModeView = chunkScanner.isCaveModeActive();
             gtnhBridge.onWorldMapOpened();
             openProgress = 0.0;
+            gtnhFocusAmount = gtnhBridge.hasActiveLayers() ? 1.0 : 0.0;
             closing = false;
             initialized = true;
         }
@@ -304,6 +306,9 @@ public class GuiWorldMap extends GuiScreen {
                     return true;
                 case BTN_CAVE:
                     caveModeView = !caveModeView;
+                    if (caveModeView) {
+                        chunkScanner.triggerCaveRescan();
+                    }
                     rebuildIconButtons();
                     return true;
                 case BTN_ORE_GRID:
@@ -464,6 +469,14 @@ public class GuiWorldMap extends GuiScreen {
             openProgress = Math.min(1.0, openProgress + dt / OPEN_DURATION_SEC);
         }
 
+        // Smooth tactical focus dimming when any GTNH Navigator overlay is active
+        double focusTarget = gtnhBridge.hasActiveLayers() ? 1.0 : 0.0;
+        double focusEase = 1.0 - Math.exp(-dt * 12.0);
+        gtnhFocusAmount += (focusTarget - gtnhFocusAmount) * focusEase;
+        if (Math.abs(focusTarget - gtnhFocusAmount) < 0.005) {
+            gtnhFocusAmount = focusTarget;
+        }
+
         // 0. Sub-pixel raw framebuffer mouse dragging (3x smoother at GUI Scale 3x, zero stepping/stutter!)
         if (dragging) {
             if (!Mouse.isButtonDown(0)) {
@@ -601,6 +614,30 @@ public class GuiWorldMap extends GuiScreen {
             // 3. Explored-only Overlays (Chunk Grid, GT 3x3 Ore Vein Grid, Slime Chunks)
             renderWorldOverlays(world, cxScreen, cyScreen);
 
+            boolean focusMode = gtnhFocusAmount > 0.04;
+            List<RadarEntity> radarEntities = MapConfig.get().radarEnabled
+                ? radarManager.collectEntities(partialTicks)
+                : Collections.emptyList();
+
+            // When GTNH overlays are active, push mobs + terrain into a calm dimmed background plane
+            // so Ore Veins, Fluids, Nodes & Claims stand out with razor-sharp contrast!
+            if (focusMode) {
+                renderWorldMobs(radarEntities, player, cxScreen, cyScreen, (float) (1.0 - 0.68 * gtnhFocusAmount));
+
+                // Smooth dark-slate tactical dimming veil over terrain & mobs (oversized to cover zoom-in reveal edges)
+                GLDraw.rect(-this.width, -this.height, this.width * 2, this.height * 2,
+                    GLDraw.withAlpha(0x060A12, (float) (0.50 * gtnhFocusAmount * uiAlpha)));
+            }
+
+            Waypoint hoveredWp = null;
+            if (focusMode) {
+                // Keep waypoints cleanly below GTNH ore icons/labels (softly muted until hovered)
+                hoveredWp = renderWorldWaypoints(
+                    world.provider.dimensionId, cxScreen, cyScreen, mouseX, mouseY,
+                    (float) (1.0 - 0.42 * gtnhFocusAmount)
+                );
+            }
+
             // 4. GTNH Navigator Layers (VisualProspecting Ore Veins, Fluids, Nodes, ServerUtilities Claims)
             gtnhBridge.renderFullscreenLayers(
                 this, centerX, centerZ, cxScreen, cyScreen, currentZoom, this.width, this.height
@@ -613,11 +650,16 @@ public class GuiWorldMap extends GuiScreen {
                 gtnhBridge.onMouseMove(-9999, -9999);
             }
 
-            // 5. Entity Radar (Players always crisp; mobs scale & fade smoothly at low zoom!)
-            renderWorldEntities(player, cxScreen, cyScreen, partialTicks);
+            // 5. Entity Radar (mobs normally on top when no GTNH overlay; players ALWAYS crisp on top!)
+            if (!focusMode) {
+                renderWorldMobs(radarEntities, player, cxScreen, cyScreen, 1.0f);
+            }
+            renderWorldPlayers(radarEntities, player, cxScreen, cyScreen);
 
-            // 6. Waypoints
-            Waypoint hoveredWp = renderWorldWaypoints(world.provider.dimensionId, cxScreen, cyScreen, mouseX, mouseY);
+            // 6. Waypoints (normal layering when no GTNH overlay is active)
+            if (!focusMode) {
+                hoveredWp = renderWorldWaypoints(world.provider.dimensionId, cxScreen, cyScreen, mouseX, mouseY, 1.0f);
+            }
             lastHoveredWaypoint = hoveredWp;
 
             // 7. Crisp red-accent Xaero player arrow
@@ -651,15 +693,17 @@ public class GuiWorldMap extends GuiScreen {
                         drawHoveringText(Collections.singletonList(hoveredUiTip), mouseX, mouseY, this.fontRendererObj);
                     } else if (hoveredLayerLabel != null) {
                         drawHoveringText(Collections.singletonList(hoveredLayerLabel), mouseX, mouseY, this.fontRendererObj);
-                    } else if (hoveredWp != null) {
-                        List<String> tip = Arrays.asList(
-                            "\u00a7f\u00a7l" + hoveredWp.name,
-                            String.format("\u00a77X: %d  Y: %d  Z: %d (Dim %d)", hoveredWp.x, hoveredWp.y, hoveredWp.z, hoveredWp.dimensionId)
-                        );
-                        drawHoveringText(tip, mouseX, mouseY, this.fontRendererObj);
                     } else {
                         List<String> navTip = gtnhBridge.getHoveredTooltip();
-                        if (!navTip.isEmpty()) {
+                        if (focusMode && !navTip.isEmpty()) {
+                            drawHoveringText(navTip, mouseX, mouseY, this.fontRendererObj);
+                        } else if (hoveredWp != null) {
+                            List<String> tip = Arrays.asList(
+                                "\u00a7f\u00a7l" + hoveredWp.name,
+                                String.format("\u00a77X: %d  Y: %d  Z: %d (Dim %d)", hoveredWp.x, hoveredWp.y, hoveredWp.z, hoveredWp.dimensionId)
+                            );
+                            drawHoveringText(tip, mouseX, mouseY, this.fontRendererObj);
+                        } else if (!navTip.isEmpty()) {
                             drawHoveringText(navTip, mouseX, mouseY, this.fontRendererObj);
                         } else {
                             gtnhBridge.drawHoveredCustomTooltip(this.fontRendererObj, mouseX, mouseY, this.width, this.height);
@@ -689,9 +733,10 @@ public class GuiWorldMap extends GuiScreen {
         for (int rz = minRz; rz <= maxRz; rz++) {
             for (int rx = minRx; rx <= maxRx; rx++) {
                 MapRegion region = worldCache.getRegionIfLoaded(rx, rz);
-                if (region == null || !region.hasSurfaceData()) continue;
+                if (region == null) continue;
+                if (caveModeView ? !region.hasCaveData() : !region.hasSurfaceData()) continue;
 
-                region.getOrUpdateTexture(caveModeView, linear);
+                if (region.getOrUpdateTexture(caveModeView, linear) == 0) continue;
 
                 double sx1 = worldToScreenX(rx * (double) MapRegion.SIZE, cxScreen);
                 double sy1 = worldToScreenY(rz * (double) MapRegion.SIZE, cyScreen);
@@ -790,30 +835,42 @@ public class GuiWorldMap extends GuiScreen {
         GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
     }
 
-    private void renderWorldEntities(EntityClientPlayerMP player, double cxScreen, double cyScreen, float partialTicks) {
-        if (!MapConfig.get().radarEnabled) return;
-        List<RadarEntity> entities = radarManager.collectEntities(partialTicks);
+    private void renderWorldMobs(List<RadarEntity> entities, EntityClientPlayerMP player, double cxScreen, double cyScreen, float focusAlphaMul) {
+        if (entities.isEmpty() || focusAlphaMul <= 0.05f) return;
 
         // Smoothly scale & fade out mobs below 0.75x zoom so distant overviews stay crystal clean!
-        float mobAlpha = (float) Math.max(0.0, Math.min(1.0, (currentZoom - 0.40) / 0.35));
-        float mobScale = (float) Math.max(0.65, Math.min(1.05, currentZoom * 0.85));
+        float mobAlpha = (float) Math.max(0.0, Math.min(1.0, (currentZoom - 0.40) / 0.35)) * focusAlphaMul;
+        if (mobAlpha <= 0.05f) return;
+        float mobScale = (float) Math.max(0.60, Math.min(1.05, currentZoom * 0.85)) * (0.85f + 0.15f * focusAlphaMul);
 
         for (int i = 0; i < entities.size(); i++) {
             RadarEntity re = entities.get(i);
-            boolean isPlayer = re.category == EntityCategory.PLAYER;
-            if (!isPlayer && mobAlpha <= 0.05f) continue;
+            if (re.category == EntityCategory.PLAYER) continue;
 
             double sx = worldToScreenX(re.x, cxScreen);
             double sy = worldToScreenY(re.z, cyScreen);
             if (sx < -24 || sx > this.width + 24 || sy < -24 || sy > this.height + 24) continue;
 
-            float scale = isPlayer ? 1.15f : mobScale;
-            float alpha = isPlayer ? 1.0f : mobAlpha;
-            EntityIconRenderer.renderEntity(re, sx, sy, player.posY, scale, alpha);
+            EntityIconRenderer.renderEntity(re, sx, sy, player.posY, mobScale, mobAlpha);
         }
     }
 
-    private Waypoint renderWorldWaypoints(int dimId, double cxScreen, double cyScreen, int mouseX, int mouseY) {
+    private void renderWorldPlayers(List<RadarEntity> entities, EntityClientPlayerMP player, double cxScreen, double cyScreen) {
+        if (entities.isEmpty()) return;
+
+        for (int i = 0; i < entities.size(); i++) {
+            RadarEntity re = entities.get(i);
+            if (re.category != EntityCategory.PLAYER) continue;
+
+            double sx = worldToScreenX(re.x, cxScreen);
+            double sy = worldToScreenY(re.z, cyScreen);
+            if (sx < -24 || sx > this.width + 24 || sy < -24 || sy > this.height + 24) continue;
+
+            EntityIconRenderer.renderEntity(re, sx, sy, player.posY, 1.15f, 1.0f);
+        }
+    }
+
+    private Waypoint renderWorldWaypoints(int dimId, double cxScreen, double cyScreen, int mouseX, int mouseY, float baseOpacity) {
         if (!MapConfig.get().showWaypointsOnWorldMap) return null;
         List<Waypoint> wps = waypointManager.getWaypointsForDimension(dimId);
         Waypoint hovered = null;
@@ -827,13 +884,15 @@ public class GuiWorldMap extends GuiScreen {
 
             boolean hit = Math.abs(mouseX - sx) <= 7.5 && Math.abs(mouseY - sy) <= 7.5;
             double hs = hit ? 6.8 : 5.6;
+            float op = hit ? 1.0f : baseOpacity;
 
-            // Sleek Xaero pin badge with pointer tail (matching screenshot #7's 'D' pin!)
-            GLDraw.rect(sx - hs - 0.8, sy - hs - 0.8, sx + hs + 0.8, sy + hs + 0.8, 0xEE0A0D12);
-            GLDraw.rect(sx - hs, sy - hs, sx + hs, sy + hs, wp.getArgb(242));
+            // Sleek Xaero pin badge (softly dimmed when GTNH overlay is active, full bright on hover)
+            GLDraw.rect(sx - hs - 0.8, sy - hs - 0.8, sx + hs + 0.8, sy + hs + 0.8, GLDraw.withAlpha(0x0A0D12, 0.93f * op));
+            GLDraw.rect(sx - hs, sy - hs, sx + hs, sy + hs, wp.getArgb(Math.round(242 * op)));
 
             String init = wp.initials != null ? wp.initials : "W";
-            GLDraw.drawCenteredText(this.fontRendererObj, init, sx + 0.3, sy - 3.0, 0.78f, 0xFFFFFFFF);
+            int textCol = GLDraw.withAlpha(0xFFFFFF, op);
+            GLDraw.drawCenteredText(this.fontRendererObj, init, sx + 0.3, sy - 3.0, 0.78f, textCol);
 
             if (hit) {
                 hovered = wp;
@@ -964,8 +1023,9 @@ public class GuiWorldMap extends GuiScreen {
             boolean hover = mouseX >= startX && mouseX <= startX + btnSize && mouseY >= by && mouseY <= by + btnSize;
 
             if (b.active) {
-                GLDraw.rect(startX, by, startX + btnSize, by + btnSize, 0xAA2563EB);
-                GLDraw.rect(startX, by, startX + 2.5, by + btnSize, 0xFF93C5FD);
+                GLDraw.rect(startX, by, startX + btnSize, by + btnSize, 0xCC1D4ED8);
+                GLDraw.rectOutline(startX, by, startX + btnSize, by + btnSize, 1.0, 0xDD38BDF8);
+                GLDraw.rect(startX, by, startX + 3.0, by + btnSize, 0xFF7DD3FC);
             } else if (hover) {
                 GLDraw.rect(startX, by, startX + btnSize, by + btnSize, 0x881E293B);
             }

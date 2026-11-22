@@ -166,6 +166,9 @@ public class ClientEventHandler {
             MapConfig.CaveMode[] vals = MapConfig.CaveMode.values();
             cfg.caveMode = vals[(cfg.caveMode.ordinal() + 1) % vals.length];
             MapConfig.save();
+            if (cfg.caveMode == MapConfig.CaveMode.ON) {
+                chunkScanner.triggerCaveRescan();
+            }
             notifyPlayer("Cave Mode: " + cfg.caveMode.name());
         } else if (MapKeybinds.KEY_TOGGLE_ORE_GRID.isPressed()) {
             cfg.showOreVeinGrid = !cfg.showOreVeinGrid;

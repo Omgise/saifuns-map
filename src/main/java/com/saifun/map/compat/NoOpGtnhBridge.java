@@ -16,6 +16,9 @@ public final class NoOpGtnhBridge implements IGtnhLayerBridge {
     public boolean isAvailable() { return false; }
 
     @Override
+    public boolean hasActiveLayers() { return false; }
+
+    @Override
     public void onWorldMapOpened() {}
 
     @Override

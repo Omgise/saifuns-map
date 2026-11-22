@@ -39,6 +39,8 @@ public class ChunkScanner {
     private boolean activeCaveMode = false;
     private int lastCaveAnchorY = 64;
     private int tickCounter = 0;
+    private int burstScanTicks = 0;
+    private int forceCaveScanTicks = 0;
 
     public ChunkScanner(MapWorldCache worldCache) {
         this.worldCache = worldCache;
@@ -48,11 +50,26 @@ public class ChunkScanner {
         return activeCaveMode;
     }
 
+    /**
+     * Triggers an immediate high-priority cave rescan of all loaded chunks around the player
+     * (used when toggling Cave Mode in World Map or entering caves so old visuals clear fast).
+     */
+    public void triggerCaveRescan() {
+        Minecraft mc = Minecraft.getMinecraft();
+        EntityClientPlayerMP player = mc.thePlayer;
+        if (player == null) return;
+        this.burstScanTicks = 16;
+        this.forceCaveScanTicks = 16;
+        enqueueRadius(MathHelper.floor_double(player.posX) >> 4, MathHelper.floor_double(player.posZ) >> 4, SCAN_RADIUS_CHUNKS, true);
+    }
+
     public void reset() {
         priorityQueue.clear();
         queuedKeys.clear();
         lastScanTime.clear();
         activeCaveMode = false;
+        burstScanTicks = 0;
+        forceCaveScanTicks = 0;
     }
 
     public void enqueueChunk(int chunkX, int chunkZ) {
@@ -75,11 +92,16 @@ public class ChunkScanner {
         activeCaveMode = detectCaveMode(world, player);
         int caveAnchorY = computeCaveAnchorY(world, player);
 
-        // If player moved vertically in cave mode or toggled cave mode, refresh nearby chunks quickly
-        boolean caveSliceShifted = activeCaveMode && (Math.abs(caveAnchorY - lastCaveAnchorY) >= 4 || !prevCave);
-        if (caveSliceShifted) {
+        // If player just entered cave mode or shifted vertically, burst-scan all nearby chunks immediately!
+        boolean enteredCave = activeCaveMode && !prevCave;
+        boolean caveSliceShifted = activeCaveMode && Math.abs(caveAnchorY - lastCaveAnchorY) >= 4;
+        if (enteredCave || caveSliceShifted) {
             lastCaveAnchorY = caveAnchorY;
-            enqueueRadius(MathHelper.floor_double(player.posX) >> 4, MathHelper.floor_double(player.posZ) >> 4, 4, true);
+            int rescanRad = enteredCave ? SCAN_RADIUS_CHUNKS : 6;
+            if (enteredCave) {
+                burstScanTicks = Math.max(burstScanTicks, 14);
+            }
+            enqueueRadius(MathHelper.floor_double(player.posX) >> 4, MathHelper.floor_double(player.posZ) >> 4, rescanRad, true);
         }
 
         // Periodically enqueue surrounding chunks for fresh updates
@@ -96,7 +118,15 @@ public class ChunkScanner {
             lastScanTime.values().removeIf(t -> t < cutoff);
         }
 
+        boolean scanCaveNow = activeCaveMode || forceCaveScanTicks > 0;
         int budget = MapConfig.get().chunksScannedPerTick;
+        if (burstScanTicks > 0) {
+            budget = Math.max(budget, 20);
+            burstScanTicks--;
+        }
+        if (forceCaveScanTicks > 0) {
+            forceCaveScanTicks--;
+        }
         int scanned = 0;
         long now = System.currentTimeMillis();
 
@@ -111,7 +141,7 @@ public class ChunkScanner {
             Chunk chunk = world.getChunkFromChunkCoords(cx, cz);
             if (chunk == null || !chunk.isChunkLoaded || chunk.isEmpty()) continue;
 
-            ChunkSnapshot snap = scanChunk(world, chunk, dimId, activeCaveMode, caveAnchorY);
+            ChunkSnapshot snap = scanChunk(world, chunk, dimId, scanCaveNow, caveAnchorY);
             worldCache.submitChunkSnapshot(snap);
             lastScanTime.put(key, now);
             scanned++;
@@ -266,9 +296,12 @@ public class ChunkScanner {
 
                 // --- Cave / Nether slice pass ---
                 if (scanCave) {
-                    int maxY = world.provider.hasNoSky ? Math.min(124, caveAnchorY + sliceUp) : Math.min(254, caveAnchorY + sliceUp);
+                    // In sky dimensions, strictly start BELOW the top solid surface (solidY - 1) with foundAir=false
+                    // so open-sky grass, trees, and rivers NEVER bleed into Cave Mode!
+                    int ceilingCap = world.provider.hasNoSky ? 124 : Math.min(254, solidY - 1);
+                    int maxY = Math.min(ceilingCap, caveAnchorY + sliceUp);
                     int minY = Math.max(1, caveAnchorY - 32);
-                    // Step down from maxY: first find open air/non-solid pocket, then first solid floor (or lava/water)
+                    // Step down from maxY: first find open underground air pocket, then first solid floor (or lava/water)
                     boolean foundAir = false;
                     int caveCol = 0;
                     int caveY = 0;

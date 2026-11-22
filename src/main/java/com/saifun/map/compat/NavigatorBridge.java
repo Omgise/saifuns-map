@@ -11,6 +11,7 @@ import com.gtnewhorizons.navigator.api.model.layers.UniversalInteractableRendere
 import com.gtnewhorizons.navigator.api.model.layers.UniversalLayerRenderer;
 import com.gtnewhorizons.navigator.api.model.locations.ILocationProvider;
 import com.gtnewhorizons.navigator.api.model.locations.IWaypointAndLocationProvider;
+import com.gtnewhorizons.navigator.api.model.steps.UniversalInteractableStep;
 import com.gtnewhorizons.navigator.api.model.steps.UniversalLocationInteractableStep;
 import com.gtnewhorizons.navigator.api.model.steps.UniversalRenderStep;
 import com.gtnewhorizons.navigator.api.model.waypoints.Waypoint;
@@ -205,6 +206,13 @@ public class NavigatorBridge implements IGtnhLayerBridge {
     }
 
     @Override
+    public boolean hasActiveLayers() {
+        if (!isAvailable() || !MapConfig.get().showNavigatorOnWorldMap) return false;
+        ensureBootstrapped();
+        return !collectActiveRenderersSorted().isEmpty();
+    }
+
+    @Override
     public void onWorldMapOpened() {
         if (!isAvailable()) return;
         ensureBootstrapped();
@@ -322,7 +330,8 @@ public class NavigatorBridge implements IGtnhLayerBridge {
         double blockSizeRaw = pixelsPerBlock * scaleFactor;
         double jmZoom = Math.max(0.0, Math.min(5.0, Math.log(Math.max(1.0, blockSizeRaw)) / LN2));
         float drawScale = (float) Math.max(0.55, Math.min(1.15, blockSizeRaw / 4.0));
-        double fontScale = Math.max(0.75, Math.min(1.15, scaleFactor * 0.5));
+        // Compact crisp label scaling so adjacent 3x3 GT ore vein labels stay legible without colliding
+        double fontScale = Math.max(0.62, Math.min(0.88, scaleFactor * 0.29));
 
         double rawCenterX = centerScreenX * scaleFactor;
         double rawCenterY = centerScreenY * scaleFactor;
@@ -360,6 +369,13 @@ public class NavigatorBridge implements IGtnhLayerBridge {
                 List<UniversalRenderStep<?>> steps = ulr.getRenderSteps();
                 if (steps == null || steps.isEmpty()) continue;
 
+                Object hoveredStep = null;
+                if (ulr instanceof UniversalInteractableRenderer && hoveredStepField != null) {
+                    try {
+                        hoveredStep = hoveredStepField.get(ulr);
+                    } catch (Throwable ignored) {}
+                }
+
                 for (int i = 0; i < steps.size(); i++) {
                     UniversalRenderStep<?> step = steps.get(i);
                     if (step == null) continue;
@@ -383,6 +399,24 @@ public class NavigatorBridge implements IGtnhLayerBridge {
                     GLDraw.ensureBlend();
                     GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
                     step.drawJourneyMap(sxRaw, syRaw, drawScale, jmZoom, blockSizeRaw, fontScale, 0.0);
+
+                    // Crisp tactical framing & luminous hover ring on point icons (Ore Veins, Thaumcraft Nodes)
+                    if (step instanceof UniversalInteractableStep) {
+                        double bx = step.getX();
+                        double by = step.getY();
+                        double bw = step.getWidth();
+                        double bh = step.getHeight();
+                        if (bw >= 4.0 && bh >= 4.0 && bw <= 256.0) {
+                            if (step == hoveredStep) {
+                                GLDraw.rectOutline(bx - 4.0, by - 4.0, bx + bw + 4.0, by + bh + 4.0, 2.0, 0x5538BDF8);
+                                GLDraw.rectOutline(bx - 2.0, by - 2.0, bx + bw + 2.0, by + bh + 2.0, 2.5, 0xFF38BDF8);
+                            } else {
+                                GLDraw.rectOutline(bx - 1.5, by - 1.5, bx + bw + 1.5, by + bh + 1.5, 1.8, 0xDD06090F);
+                                GLDraw.rectOutline(bx - 0.5, by - 0.5, bx + bw + 0.5, by + bh + 0.5, 1.0, 0x66E2E8F0);
+                            }
+                        }
+                    }
+
                     GL11.glPopMatrix();
                 }
             } catch (Throwable ignored) {}

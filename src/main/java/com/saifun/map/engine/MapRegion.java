@@ -406,9 +406,8 @@ public class MapRegion {
         touch();
         int[] pixels = caveMode ? caveShadedArgb : surfaceShadedArgb;
         if (pixels == null) {
-            // No cave data yet in this region; fall back cleanly to empty/surface texture
-            pixels = surfaceShadedArgb;
-            caveMode = false;
+            // Never fall back to surface terrain when rendering Cave Mode!
+            return 0;
         }
 
         int texId = caveMode ? caveTextureId : surfaceTextureId;
@@ -526,6 +525,10 @@ public class MapRegion {
 
     public boolean hasSurfaceData() {
         return hasAnySurfaceData;
+    }
+
+    public boolean hasCaveData() {
+        return hasAnyCaveData && caveShadedArgb != null;
     }
 
     public boolean isChunkPopulated(int localCx, int localCz) {
