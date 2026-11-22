@@ -68,4 +68,7 @@ public final class NoOpGtnhBridge implements IGtnhLayerBridge {
     public List<ContextAction> getContextActions(int mouseX, int mouseY, int blockX, int blockZ) {
         return Collections.emptyList();
     }
+
+    @Override
+    public void clearActiveWaypoint(String navTagKey) {}
 }

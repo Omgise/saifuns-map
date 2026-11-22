@@ -479,18 +479,15 @@ public class MinimapRenderer {
 
             double sx = centerX + rx;
             double sy = centerY + ry;
-            float badgeScale = clamped ? 0.55f : 0.65f;
+            double iconSize = clamped ? 10.0 : 12.0;
+            float iconAlpha = clamped ? 0.86f : 1.0f;
 
-            GL11.glPushMatrix();
-            GL11.glTranslated(sx, sy, 0.0);
-            GL11.glScalef(badgeScale, badgeScale, 1.0f);
-            GLDraw.rect(-6.2, -6.2, 6.2, 6.2, clamped ? 0xCC0A0D12 : 0xEE0A0D12);
-            GLDraw.rect(-5.0, -5.0, 5.0, 5.0, wp.getArgb(clamped ? 205 : 245));
-            if (fr != null) {
-                String init = wp.initials != null ? wp.initials : "W";
-                GLDraw.drawCenteredText(fr, init, 0.3, -3.5, 0.95f, 0xFFFFFFFF);
+            if (wp.customIconDrawer != null) {
+                double h = iconSize * 0.5;
+                GLDraw.rect(sx - h - 1.2, sy - h - 1.2, sx + h + 1.2, sy + h + 1.2, GLDraw.withAlpha(0x070A0F, 0.92f * iconAlpha));
+                GLDraw.rectOutline(sx - h - 0.6, sy - h - 0.6, sx + h + 0.6, sy + h + 0.6, 1.0, GLDraw.withAlpha(0xFACC15, iconAlpha));
             }
-            GL11.glPopMatrix();
+            WaypointIconRenderer.drawWaypointIcon(wp, sx, sy, iconSize, iconAlpha, wp.color);
         }
     }
 

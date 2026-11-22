@@ -4,6 +4,7 @@ import com.saifun.map.config.MapConfig;
 import com.saifun.map.engine.BlockColorResolver;
 import com.saifun.map.render.GLDraw;
 import com.saifun.map.render.GLStateGuard;
+import com.saifun.map.render.WaypointIconRenderer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityClientPlayerMP;
 import net.minecraft.client.gui.FontRenderer;
@@ -136,22 +137,22 @@ public class WaypointWorldRenderer {
                     GL11.glDisable(GL11.GL_DEPTH_TEST);
                     GL11.glDepthMask(false);
 
-                    // Sleek compact badge (+ luminous accent frame for active Ore Vein / Shared Beacon)
-                    double hs = (priority || focused) ? 7.2 : 6.0;
-                    if (priority) {
+                    // Crisp pixel-art icon OR native GTNH Navigator icon (Ore Vein, Thaumcraft Node, etc.)
+                    double hs = (priority || focused) ? 8.2 : 7.2;
+                    if (wp.customIconDrawer != null) {
                         int accent = (wp.type == Waypoint.Type.NAVIGATOR) ? 0xFFFACC15 : 0xFF38BDF8;
-                        GLDraw.rect(-hs - 2.0, -hs - 2.0, hs + 2.0, hs + 2.0, GLDraw.withAlpha(0x070A0F, 0.95f));
-                        GLDraw.rect(-hs - 1.2, -hs - 1.2, hs + 1.2, hs + 1.2, accent);
+                        GLDraw.rect(-hs - 2.2, -hs - 2.2, hs + 2.2, hs + 2.2, GLDraw.withAlpha(0x070A0F, 0.94f * alpha));
+                        GLDraw.rect(-hs - 1.2, -hs - 1.2, hs + 1.2, hs + 1.2, GLDraw.withAlpha(accent, alpha));
+                        GLDraw.rect(-hs, -hs, hs, hs, GLDraw.withAlpha(0x0E131D, 0.92f * alpha));
+                        WaypointIconRenderer.drawWaypointIcon(wp, 0.0, 0.0, hs * 2.0, alpha, badgeColor);
+                    } else if (priority) {
+                        int accent = (wp.type == Waypoint.Type.NAVIGATOR) ? 0xFFFACC15 : 0xFF38BDF8;
+                        GLDraw.rect(-hs - 1.6, -hs - 1.6, hs + 1.6, hs + 1.6, GLDraw.withAlpha(0x070A0F, 0.80f * alpha));
+                        GLDraw.rectOutline(-hs - 1.0, -hs - 1.0, hs + 1.0, hs + 1.0, 1.2, GLDraw.withAlpha(accent, alpha));
+                        WaypointIconRenderer.drawWaypointIcon(wp, 0.0, 0.0, hs * 2.1, alpha, badgeColor);
                     } else {
-                        GLDraw.rect(-hs - 1.0, -hs - 1.0, hs + 1.0, hs + 1.0, GLDraw.withAlpha(0x0B0E14, alpha * 0.92f));
+                        WaypointIconRenderer.drawWaypointIcon(wp, 0.0, 0.0, hs * 2.15, alpha, badgeColor);
                     }
-                    GLDraw.rect(-hs, -hs, hs, hs, GLDraw.withAlpha(badgeColor, alpha * 0.94f));
-
-                    String init = wp.initials != null ? wp.initials : "W";
-                    int initCol = dimmedByTarget && !focused
-                        ? GLDraw.withAlpha(0xCBD5E1, alpha)
-                        : GLDraw.withAlpha(0xFFFFFF, alpha);
-                    GLDraw.drawCenteredText(fr, init, 0.2, -3.5, 0.85f, initCol);
 
                     if (showFullLabel) {
                         String distStr = formatDistance(dist);

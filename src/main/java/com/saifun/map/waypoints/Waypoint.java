@@ -14,6 +14,37 @@ public class Waypoint {
         SHARED_BEACON
     }
 
+    public enum IconType {
+        PIN("pin"),
+        HOME("home"),
+        MINE("mine"),
+        DUNGEON("dungeon"),
+        PORTAL("portal"),
+        VILLAGE("village"),
+        STAR("star"),
+        CHEST("chest"),
+        FARM("farm"),
+        BOSS("boss"),
+        CRYSTAL("crystal"),
+        DEATH("death");
+
+        public final String langKey;
+
+        IconType(String langKey) {
+            this.langKey = "saifunsmap.icon." + langKey;
+        }
+    }
+
+    @FunctionalInterface
+    public interface CustomIconDrawer {
+        /**
+         * Renders a native overlay icon (e.g. GTNH Ore Vein block or Thaumcraft Node aspect)
+         * centered at (cx, cy) fitting within (size x size) pixels.
+         * Returns true if drawn, false to fall back to the pixel-art icon.
+         */
+        boolean draw(double cx, double cy, double size, float alpha);
+    }
+
     public String id;
     public String name;
     public String initials;
@@ -25,8 +56,10 @@ public class Waypoint {
     public boolean enabled = true;
     public boolean temporary = false;
     public Type type = Type.NORMAL;
+    public IconType icon = IconType.PIN;
     public long createdAt;
     public transient long expiresAt = 0L;
+    public transient CustomIconDrawer customIconDrawer = null;
 
     public Waypoint() {}
 
@@ -40,8 +73,14 @@ public class Waypoint {
         this.dimensionId = dimensionId;
         this.color = color & 0xFFFFFF;
         this.type = type != null ? type : Type.NORMAL;
+        this.icon = (this.type == Type.DEATH) ? IconType.DEATH : IconType.PIN;
         this.enabled = true;
         this.createdAt = System.currentTimeMillis();
+    }
+
+    public IconType getEffectiveIcon() {
+        if (icon != null) return icon;
+        return type == Type.DEATH ? IconType.DEATH : IconType.PIN;
     }
 
     public static String normalizeInitials(String initials, String fallbackName) {

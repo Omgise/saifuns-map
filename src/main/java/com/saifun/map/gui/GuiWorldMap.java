@@ -13,6 +13,7 @@ import com.saifun.map.radar.EntityRadarManager;
 import com.saifun.map.radar.RadarEntity;
 import com.saifun.map.render.GLDraw;
 import com.saifun.map.render.GLStateGuard;
+import com.saifun.map.render.WaypointIconRenderer;
 import com.saifun.map.util.Lang;
 import com.saifun.map.waypoints.Waypoint;
 import com.saifun.map.waypoints.WaypointManager;
@@ -311,33 +312,107 @@ public class GuiWorldMap extends GuiScreen {
         }
     }
 
+    private Waypoint findWaypointAt(int mouseX, int mouseY) {
+        if (!MapConfig.get().showWaypointsOnWorldMap || mc.theWorld == null) return null;
+        double cxScreen = this.width * 0.5;
+        double cyScreen = this.height * 0.5;
+        List<Waypoint> wps = waypointManager.getWaypointsForDimension(mc.theWorld.provider.dimensionId);
+        Waypoint best = null;
+        double bestDistSq = 9.5 * 9.5;
+        for (int i = wps.size() - 1; i >= 0; i--) {
+            Waypoint wp = wps.get(i);
+            if (!wp.enabled) continue;
+            if (wp.type == Waypoint.Type.NAVIGATOR && gtnhFocusAmount > 0.04) continue;
+            double sx = worldToScreenX(wp.x + 0.5, cxScreen);
+            double sy = worldToScreenY(wp.z + 0.5, cyScreen);
+            double dx = mouseX - sx;
+            double dy = mouseY - sy;
+            double d2 = dx * dx + dy * dy;
+            if (d2 <= bestDistSq) {
+                bestDistSq = d2;
+                best = wp;
+            }
+        }
+        return best;
+    }
+
     private void openContextMenu(int mouseX, int mouseY) {
         final int bx = MathHelper.floor_double(screenToWorldX(mouseX));
         final int bz = MathHelper.floor_double(screenToWorldZ(mouseY));
         final int by = estimateSurfaceY(bx, bz);
-        final Waypoint targetWp = lastHoveredWaypoint != null ? lastHoveredWaypoint : gtnhBridge.getHoveredShareWaypoint();
+        final Waypoint clickedWp = findWaypointAt(mouseX, mouseY);
+        final Waypoint navShareWp = gtnhBridge.getHoveredShareWaypoint();
+        final Waypoint targetWp = clickedWp != null ? clickedWp : navShareWp;
 
         contextMenuActions.clear();
 
-        // 1. Contextual GTNH Navigator actions (Track/Untrack Vein, Toggle Depleted, Claim/Load/Unclaim Chunk)
+        // 1. Direct right-click actions for a hovered Waypoint (Teleport, Edit, Hide, Share, Delete / Untrack)
+        if (clickedWp != null) {
+            final Waypoint wp = clickedWp;
+            contextMenuActions.add(new IGtnhLayerBridge.ContextAction(Lang.tr("saifunsmap.context.wp_teleport"), () -> {
+                WaypointManager.teleportTo(wp);
+                mc.displayGuiScreen(null);
+            }));
+
+            if (!wp.temporary) {
+                contextMenuActions.add(new IGtnhLayerBridge.ContextAction(Lang.tr("saifunsmap.context.wp_edit"), () -> {
+                    mc.displayGuiScreen(new GuiWaypointEdit(this, waypointManager, wp, wp.x, wp.y, wp.z, wp.dimensionId));
+                }));
+                contextMenuActions.add(new IGtnhLayerBridge.ContextAction(Lang.tr("saifunsmap.context.wp_hide"), () -> {
+                    wp.enabled = false;
+                    waypointManager.save();
+                }));
+                contextMenuActions.add(new IGtnhLayerBridge.ContextAction(Lang.tr("saifunsmap.context.wp_share"), () -> {
+                    WaypointManager.shareInChat(wp);
+                }));
+                contextMenuActions.add(new IGtnhLayerBridge.ContextAction(Lang.tr("saifunsmap.context.wp_delete"), true, () -> {
+                    waypointManager.removeWaypoint(wp);
+                    if (lastHoveredWaypoint == wp) lastHoveredWaypoint = null;
+                }));
+            } else {
+                contextMenuActions.add(new IGtnhLayerBridge.ContextAction(Lang.tr("saifunsmap.context.wp_save_permanent"), () -> {
+                    mc.displayGuiScreen(new GuiWaypointEdit(
+                        this, waypointManager, null,
+                        wp.name, wp.x, wp.y, wp.z, wp.dimensionId, wp.color
+                    ));
+                }));
+                contextMenuActions.add(new IGtnhLayerBridge.ContextAction(Lang.tr("saifunsmap.context.wp_share"), () -> {
+                    WaypointManager.shareInChat(wp);
+                }));
+                contextMenuActions.add(new IGtnhLayerBridge.ContextAction(Lang.tr("saifunsmap.context.wp_remove_beacon"), true, () -> {
+                    if (wp.type == Waypoint.Type.NAVIGATOR && wp.id != null && wp.id.startsWith("nav:")) {
+                        String tagKey = wp.id.substring(4);
+                        gtnhBridge.clearActiveWaypoint(tagKey);
+                        waypointManager.clearNavigatorWaypoints(tagKey);
+                    } else {
+                        waypointManager.removeWaypoint(wp);
+                    }
+                    if (lastHoveredWaypoint == wp) lastHoveredWaypoint = null;
+                }));
+            }
+        }
+
+        // 2. Contextual GTNH Navigator actions (Track/Untrack Vein, Toggle Depleted, Claim/Load/Unclaim Chunk)
         List<IGtnhLayerBridge.ContextAction> navActions = gtnhBridge.getContextActions(mouseX, mouseY, bx, bz);
         contextMenuActions.addAll(navActions);
-        contextGtnhCount = navActions.size();
+        contextGtnhCount = contextMenuActions.size();
 
-        // 2. Standard map actions
-        String shareLabel = Lang.tr(targetWp != null ? "saifunsmap.context.share_point" : "saifunsmap.context.share_location");
-        contextMenuActions.add(new IGtnhLayerBridge.ContextAction(shareLabel, () -> {
-            if (targetWp != null) {
-                WaypointManager.shareInChat(targetWp);
-            } else if (mc.theWorld != null) {
-                String label = mc.thePlayer != null ? mc.thePlayer.getDisplayName() : "Shared Point";
-                Waypoint shared = new Waypoint(
-                    label, null, bx, by, bz,
-                    mc.theWorld.provider.dimensionId, WaypointManager.pickRandomColor(), Waypoint.Type.NORMAL
-                );
-                WaypointManager.shareInChat(shared);
-            }
-        }));
+        // 3. Standard map actions
+        if (clickedWp == null) {
+            String shareLabel = Lang.tr(targetWp != null ? "saifunsmap.context.share_point" : "saifunsmap.context.share_location");
+            contextMenuActions.add(new IGtnhLayerBridge.ContextAction(shareLabel, () -> {
+                if (targetWp != null) {
+                    WaypointManager.shareInChat(targetWp);
+                } else if (mc.theWorld != null) {
+                    String label = mc.thePlayer != null ? mc.thePlayer.getDisplayName() : "Shared Point";
+                    Waypoint shared = new Waypoint(
+                        label, null, bx, by, bz,
+                        mc.theWorld.provider.dimensionId, WaypointManager.pickRandomColor(), Waypoint.Type.NORMAL
+                    );
+                    WaypointManager.shareInChat(shared);
+                }
+            }));
+        }
 
         contextMenuActions.add(new IGtnhLayerBridge.ContextAction(Lang.tr("saifunsmap.context.add_waypoint"), () -> {
             if (mc.theWorld != null) {
@@ -345,14 +420,19 @@ public class GuiWorldMap extends GuiScreen {
             }
         }));
 
-        contextMenuActions.add(new IGtnhLayerBridge.ContextAction(Lang.tr("saifunsmap.context.teleport"), () -> {
-            WaypointManager.teleportTo(bx, by, bz);
-            mc.displayGuiScreen(null);
-        }));
+        if (clickedWp == null) {
+            contextMenuActions.add(new IGtnhLayerBridge.ContextAction(Lang.tr("saifunsmap.context.teleport"), () -> {
+                WaypointManager.teleportTo(bx, by, bz);
+                mc.displayGuiScreen(null);
+            }));
+        }
 
         contextMenuActions.add(new IGtnhLayerBridge.ContextAction(Lang.tr("saifunsmap.context.copy_coords"), () -> {
             try {
-                String coords = bx + " " + by + " " + bz;
+                int cx = clickedWp != null ? clickedWp.x : bx;
+                int cy = clickedWp != null ? clickedWp.y : by;
+                int cz = clickedWp != null ? clickedWp.z : bz;
+                String coords = cx + " " + cy + " " + cz;
                 Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(coords), null);
                 if (mc.thePlayer != null) {
                     mc.thePlayer.addChatMessage(new ChatComponentText("\u00a7b[Saifun's Map]\u00a7r " + Lang.tr("saifunsmap.chat.copied", coords)));
@@ -368,7 +448,7 @@ public class GuiWorldMap extends GuiScreen {
             }
         }));
 
-        int maxW = 132;
+        int maxW = 136;
         for (int i = 0; i < contextMenuActions.size(); i++) {
             int tw = this.fontRendererObj.getStringWidth(contextMenuActions.get(i).label) + 18;
             if (tw > maxW) maxW = tw;
@@ -973,17 +1053,18 @@ public class GuiWorldMap extends GuiScreen {
             double sy = worldToScreenY(wp.z + 0.5, cyScreen);
             if (sx < -20 || sx > this.width + 20 || sy < -20 || sy > this.height + 20) continue;
 
-            boolean hit = Math.abs(mouseX - sx) <= 7.5 && Math.abs(mouseY - sy) <= 7.5;
-            double hs = hit ? 6.8 : 5.6;
+            boolean hit = Math.abs(mouseX - sx) <= 8.5 && Math.abs(mouseY - sy) <= 8.5;
+            double iconSize = hit ? 17.0 : 14.0;
             float op = hit ? 1.0f : baseOpacity;
 
-            // Sleek pin badge (softly dimmed when GTNH overlay is active, full bright on hover)
-            GLDraw.rect(sx - hs - 0.8, sy - hs - 0.8, sx + hs + 0.8, sy + hs + 0.8, GLDraw.withAlpha(0x0A0D12, 0.93f * op));
-            GLDraw.rect(sx - hs, sy - hs, sx + hs, sy + hs, wp.getArgb(Math.round(242 * op)));
-
-            String init = wp.initials != null ? wp.initials : "W";
-            int textCol = GLDraw.withAlpha(0xFFFFFF, op);
-            GLDraw.drawCenteredText(this.fontRendererObj, init, sx + 0.3, sy - 3.0, 0.78f, textCol);
+            if (wp.customIconDrawer != null) {
+                double h = iconSize * 0.5;
+                GLDraw.rect(sx - h - 1.5, sy - h - 1.5, sx + h + 1.5, sy + h + 1.5, GLDraw.withAlpha(0x070A0F, 0.92f * op));
+                GLDraw.rectOutline(sx - h - 0.7, sy - h - 0.7, sx + h + 0.7, sy + h + 0.7, 1.2, GLDraw.withAlpha(0xFACC15, op));
+            } else if (hit) {
+                GLDraw.circle(sx, sy, iconSize * 0.56, 0.0, GLDraw.withAlpha(0xFFFFFF, 0.22f), 16);
+            }
+            WaypointIconRenderer.drawWaypointIcon(wp, sx, sy, iconSize, op, wp.color);
 
             if (hit) {
                 hovered = wp;
@@ -1198,15 +1279,20 @@ public class GuiWorldMap extends GuiScreen {
                 GLDraw.rect(contextMenuX + 6, iy + 1, contextMenuX + w - 6, iy + 2, 0x66475569);
                 iy += 4;
             }
-            boolean isGtnh = i < contextGtnhCount;
+            IGtnhLayerBridge.ContextAction act = contextMenuActions.get(i);
+            boolean isContextual = i < contextGtnhCount;
             boolean hover = mouseX >= contextMenuX && mouseX <= contextMenuX + w && mouseY >= iy && mouseY < iy + 18;
             if (hover) {
-                GLDraw.rect(contextMenuX + 2, iy, contextMenuX + w - 2, iy + 17, 0xBB2563EB);
-            } else if (isGtnh) {
+                GLDraw.rect(contextMenuX + 2, iy, contextMenuX + w - 2, iy + 17, act.danger ? 0xCCDC2626 : 0xBB2563EB);
+            } else if (act.danger) {
+                GLDraw.rect(contextMenuX + 2, iy, contextMenuX + 4.5, iy + 17, 0xCCEF4444);
+            } else if (isContextual) {
                 GLDraw.rect(contextMenuX + 2, iy, contextMenuX + 4.5, iy + 17, 0xCC38BDF8);
             }
-            int textCol = isGtnh ? (hover ? 0xFFFFFFFF : 0xFF7DD3FC) : 0xFFF1F5F9;
-            this.fontRendererObj.drawStringWithShadow(contextMenuActions.get(i).label, contextMenuX + 9, iy + 5, textCol);
+            int textCol = act.danger
+                ? (hover ? 0xFFFFFFFF : 0xFFFCA5A5)
+                : (isContextual ? (hover ? 0xFFFFFFFF : 0xFF7DD3FC) : 0xFFF1F5F9);
+            this.fontRendererObj.drawStringWithShadow(act.label, contextMenuX + 9, iy + 5, textCol);
             iy += 18;
         }
     }

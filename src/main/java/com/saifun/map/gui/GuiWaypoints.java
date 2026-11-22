@@ -1,6 +1,7 @@
 package com.saifun.map.gui;
 
 import com.saifun.map.render.GLDraw;
+import com.saifun.map.render.WaypointIconRenderer;
 import com.saifun.map.util.Lang;
 import com.saifun.map.waypoints.Waypoint;
 import com.saifun.map.waypoints.WaypointImporter;
@@ -220,10 +221,8 @@ public class GuiWaypoints extends GuiScreen {
             int rowBg = sel ? 0xAA2563EB : (i % 2 == 0 ? 0x44161D29 : 0x22161D29);
             GLDraw.rect(panelX + 1, ry + 1, panelX + panelW - 1, ry + ROW_HEIGHT - 1, rowBg);
 
-            // Color initials badge
-            GLDraw.rect(panelX + 5, ry + 4, panelX + 21, ry + 18, wp.getArgb(wp.enabled ? 240 : 90));
-            String init = wp.initials != null ? wp.initials : "W";
-            this.fontRendererObj.drawStringWithShadow(init, panelX + 13 - this.fontRendererObj.getStringWidth(init) / 2, ry + 7, 0xFFFFFFFF);
+            // Crisp pixel-art waypoint icon (or native GTNH overlay icon)
+            WaypointIconRenderer.drawWaypointIcon(wp, panelX + 13.0, ry + 11.0, 14.0, wp.enabled ? 1.0f : 0.40f, wp.color);
 
             int nameCol = wp.enabled ? 0xFFF1F5F9 : 0xFF64748B;
             this.fontRendererObj.drawStringWithShadow(wp.name, panelX + 28, ry + 7, nameCol);

@@ -27,9 +27,11 @@ import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -121,6 +123,9 @@ public class WaypointManager {
                         if (wp != null && !wp.temporary) {
                             if (wp.id == null) wp.id = java.util.UUID.randomUUID().toString();
                             if (wp.type == null) wp.type = Waypoint.Type.NORMAL;
+                            if (wp.icon == null) {
+                                wp.icon = (wp.type == Waypoint.Type.DEATH) ? Waypoint.IconType.DEATH : Waypoint.IconType.PIN;
+                            }
                             wp.initials = Waypoint.normalizeInitials(wp.initials, wp.name);
                             waypoints.add(wp);
                         }
@@ -197,6 +202,17 @@ public class WaypointManager {
     }
 
     public synchronized void setNavigatorWaypoint(String tagKey, String label, int x, int y, int z, int dimId, int color) {
+        setNavigatorWaypoint(tagKey, label, x, y, z, dimId, color, null);
+    }
+
+    public synchronized void setNavigatorWaypoint(
+        String tagKey,
+        String label,
+        int x, int y, int z,
+        int dimId,
+        int color,
+        Waypoint.CustomIconDrawer customIconDrawer
+    ) {
         ensureLoaded();
         clearNavigatorWaypoints(tagKey);
         String cleanLabel = (label != null ? label.replaceAll("\u00a7[0-9a-fk-or]", "").trim() : "");
@@ -205,6 +221,8 @@ public class WaypointManager {
         Waypoint wp = new Waypoint(cleanLabel, null, x, y, z, dimId, safeColor, Waypoint.Type.NAVIGATOR);
         wp.id = "nav:" + tagKey;
         wp.temporary = true;
+        wp.icon = Waypoint.IconType.STAR;
+        wp.customIconDrawer = customIconDrawer;
         waypoints.add(wp);
         rebuildDimCache();
     }
@@ -310,7 +328,10 @@ public class WaypointManager {
             int dy = Math.max(0, Math.min(255, MathHelper.floor_double(player.posY)));
             int dz = MathHelper.floor_double(player.posZ);
             int dim = mc.theWorld.provider.dimensionId;
-            Waypoint death = new Waypoint("Death (" + dx + ", " + dz + ")", "X", dx, dy, dz, dim, 0xEF4444, Waypoint.Type.DEATH);
+            String timeStr = new SimpleDateFormat("HH:mm:ss").format(new Date());
+            String deathName = Lang.tr("saifunsmap.waypoint.death_name", timeStr);
+            Waypoint death = new Waypoint(deathName, "X", dx, dy, dz, dim, 0xEF4444, Waypoint.Type.DEATH);
+            death.icon = Waypoint.IconType.DEATH;
             addWaypoint(death);
             player.addChatMessage(new ChatComponentText(
                 "\u00a7b[Saifun's Map]\u00a7r " + Lang.tr("saifunsmap.chat.death_saved", dx, dy, dz, dim)

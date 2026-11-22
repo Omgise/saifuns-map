@@ -24,6 +24,8 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.ScaledResolution;
+import net.minecraft.client.renderer.texture.TextureMap;
+import net.minecraft.util.IIcon;
 import net.minecraft.util.MathHelper;
 import net.minecraft.util.ResourceLocation;
 import org.lwjgl.input.Keyboard;
@@ -179,7 +181,7 @@ public class NavigatorBridge implements IGtnhLayerBridge {
                 InteractableLayerManager ilm = (InteractableLayerManager) lm;
                 Map<SupportedMods, WaypointManager> wpMap = (Map<SupportedMods, WaypointManager>) waypointManagersMapField.get(ilm);
                 if (wpMap != null && !wpMap.containsKey(SupportedMods.JourneyMap)) {
-                    wpMap.put(SupportedMods.JourneyMap, new SaifunsNavigatorWaypointManager(ilm, ourWaypoints));
+                    wpMap.put(SupportedMods.JourneyMap, new SaifunsNavigatorWaypointManager(this, ilm, ourWaypoints));
                 }
             }
         } catch (Throwable t) {
@@ -777,15 +779,176 @@ public class NavigatorBridge implements IGtnhLayerBridge {
         return rendererToManager.get(target);
     }
 
+    @Override
+    public void clearActiveWaypoint(String navTagKey) {
+        if (!isAvailable() || navTagKey == null) return;
+        ensureBootstrapped();
+        for (LayerManager lm : orderedManagers) {
+            if (lm instanceof InteractableLayerManager && navTagKey.equals(lm.getClass().getSimpleName())) {
+                try {
+                    ((InteractableLayerManager) lm).clearActiveWaypoint();
+                    lm.forceRefresh();
+                    lastFullRecacheMs = 0L;
+                } catch (Throwable ignored) {}
+            }
+        }
+    }
+
+    private UniversalRenderStep<?> findStepForWaypoint(InteractableLayerManager lm, Waypoint navWp) {
+        if (lm == null || navWp == null) return null;
+        UniversalLayerRenderer ulr = boundRenderers.get(lm);
+        if (ulr == null) return null;
+        try {
+            List<UniversalRenderStep<?>> steps = ulr.getRenderSteps();
+            if (steps == null || steps.isEmpty()) return null;
+            UniversalRenderStep<?> activeFallback = null;
+            for (int i = 0; i < steps.size(); i++) {
+                UniversalRenderStep<?> step = steps.get(i);
+                if (step == null) continue;
+                ILocationProvider loc = step.getLocation();
+                if (loc == null) continue;
+                if (Math.abs(loc.getBlockX() - navWp.blockX) <= 1.5
+                    && Math.abs(loc.getBlockZ() - navWp.blockZ) <= 1.5
+                    && loc.getDimensionId() == navWp.dimensionId) {
+                    return step;
+                }
+                if (activeFallback == null && loc instanceof IWaypointAndLocationProvider
+                    && ((IWaypointAndLocationProvider) loc).isActiveAsWaypoint()) {
+                    activeFallback = step;
+                }
+            }
+            return activeFallback;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static final ResourceLocation TC_NODE_MARKED =
+        new ResourceLocation("tcnodetracker", "textures/gui/node_marked.png");
+
+    private static com.saifun.map.waypoints.Waypoint.CustomIconDrawer buildStepIconDrawer(UniversalRenderStep<?> step) {
+        if (step == null) return null;
+        ILocationProvider loc = step.getLocation();
+        if (loc == null) return null;
+
+        String locClass = loc.getClass().getName();
+
+        // 1. VisualProspecting Ore Vein -> exact GT ore icon on dimension stone background!
+        if (locClass.endsWith(".OreVeinLocation")) {
+            try {
+                Method getIconFromPrimaryOre = loc.getClass().getMethod("getIconFromPrimaryOre");
+                Method getColor = loc.getClass().getMethod("getColor");
+                Object iconContainer = getIconFromPrimaryOre.invoke(loc);
+                int oreColor = ((Number) getColor.invoke(loc)).intValue() & 0xFFFFFF;
+                int dimId = loc.getDimensionId();
+                if (iconContainer != null) {
+                    Method mGetIcon = iconContainer.getClass().getMethod("getIcon");
+                    Method mGetOverlay = iconContainer.getClass().getMethod("getOverlayIcon");
+                    final IIcon oreIcon = (IIcon) mGetIcon.invoke(iconContainer);
+                    final IIcon overlayIcon = (IIcon) mGetOverlay.invoke(iconContainer);
+                    IIcon bgIcon = null;
+                    try {
+                        Class<?> bgCls = Class.forName("com.sinthoras.visualprospecting.integration.model.render.DimensionStoneBackground");
+                        bgIcon = (IIcon) bgCls.getMethod("getBackgroundIcon", int.class).invoke(null, dimId);
+                    } catch (Throwable ignored) {}
+                    final IIcon finalBg = bgIcon;
+                    if (oreIcon != null) {
+                        return (cx, cy, size, alpha) -> {
+                            double h = size * 0.5;
+                            Minecraft.getMinecraft().getTextureManager().bindTexture(TextureMap.locationBlocksTexture);
+                            GLDraw.ensureBlend();
+                            GL11.glEnable(GL11.GL_TEXTURE_2D);
+                            if (finalBg != null) {
+                                GL11.glColor4f(1.0f, 1.0f, 1.0f, alpha);
+                                drawIIcon(finalBg, cx - h, cy - h, cx + h, cy + h);
+                            }
+                            float r = ((oreColor >>> 16) & 0xFF) / 255.0f;
+                            float g = ((oreColor >>> 8) & 0xFF) / 255.0f;
+                            float b = (oreColor & 0xFF) / 255.0f;
+                            GL11.glColor4f(r, g, b, alpha);
+                            drawIIcon(oreIcon, cx - h, cy - h, cx + h, cy + h);
+                            if (overlayIcon != null) {
+                                GL11.glColor4f(1.0f, 1.0f, 1.0f, alpha);
+                                drawIIcon(overlayIcon, cx - h, cy - h, cx + h, cy + h);
+                            }
+                            GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+                            return true;
+                        };
+                    }
+                }
+            } catch (Throwable ignored) {}
+        }
+
+        // 2. TCNodeTracker Thaumcraft Node -> exact node ring + strongest Aspect glyph!
+        if (locClass.endsWith(".ThaumcraftNodeLocation")) {
+            try {
+                Method getStrongestAspect = loc.getClass().getMethod("getStrongestAspect");
+                Object aspect = getStrongestAspect.invoke(loc);
+                if (aspect != null) {
+                    final int aspectColor = ((Number) aspect.getClass().getMethod("getColor").invoke(aspect)).intValue() & 0xFFFFFF;
+                    final ResourceLocation aspectImage = (ResourceLocation) aspect.getClass().getMethod("getImage").invoke(aspect);
+                    return (cx, cy, size, alpha) -> {
+                        double h = size * 0.5;
+                        float r = ((aspectColor >>> 16) & 0xFF) / 255.0f;
+                        float g = ((aspectColor >>> 8) & 0xFF) / 255.0f;
+                        float b = (aspectColor & 0xFF) / 255.0f;
+                        GLDraw.ensureBlend();
+                        GL11.glEnable(GL11.GL_TEXTURE_2D);
+                        Minecraft.getMinecraft().getTextureManager().bindTexture(TC_NODE_MARKED);
+                        GL11.glColor4f(r, g, b, alpha * 0.92f);
+                        GLDraw.texturedQuad(cx - h, cy - h, cx + h, cy + h, 0.0, 0.0, 1.0, 1.0);
+                        if (aspectImage != null) {
+                            double ah = size * 0.34;
+                            Minecraft.getMinecraft().getTextureManager().bindTexture(aspectImage);
+                            GL11.glColor4f(r, g, b, alpha);
+                            GLDraw.texturedQuad(cx - ah, cy - ah, cx + ah, cy + ah, 0.0, 0.0, 1.0, 1.0);
+                        }
+                        GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+                        return true;
+                    };
+                }
+            } catch (Throwable ignored) {}
+        }
+
+        // 3. Generic fallback for any other GTNH Navigator layer (fluids, custom addons)
+        final UniversalRenderStep<?> capturedStep = step;
+        return (cx, cy, size, alpha) -> {
+            try {
+                double refW = Math.max(12.0, capturedStep.getWidth());
+                double scale = size / refW;
+                GL11.glPushMatrix();
+                GL11.glTranslated(cx, cy, 0.0);
+                GL11.glScaled(scale, scale, 1.0);
+                GLDraw.ensureBlend();
+                GL11.glColor4f(1.0f, 1.0f, 1.0f, alpha);
+                capturedStep.drawJourneyMap(0.0, 0.0, 1.0f, 2.0, 4.0, 0.0, 0.0);
+                GL11.glPopMatrix();
+                GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+                return true;
+            } catch (Throwable ignored) {
+                return false;
+            }
+        };
+    }
+
+    private static void drawIIcon(IIcon icon, double x1, double y1, double x2, double y2) {
+        GLDraw.texturedQuad(x1, y1, x2, y2, icon.getMinU(), icon.getMinV(), icon.getMaxU(), icon.getMaxV());
+    }
+
     private static final class SaifunsNavigatorWaypointManager extends WaypointManager {
+        private final NavigatorBridge bridge;
+        private final InteractableLayerManager layerManager;
         private final com.saifun.map.waypoints.WaypointManager ourManager;
         private final String tagKey;
 
         SaifunsNavigatorWaypointManager(
+            NavigatorBridge bridge,
             InteractableLayerManager manager,
             com.saifun.map.waypoints.WaypointManager ourManager
         ) {
             super(manager, SupportedMods.JourneyMap);
+            this.bridge = bridge;
+            this.layerManager = manager;
             this.ourManager = ourManager;
             this.tagKey = manager.getClass().getSimpleName();
         }
@@ -801,6 +964,8 @@ public class NavigatorBridge implements IGtnhLayerBridge {
                 clearActiveWaypoint();
                 return;
             }
+            UniversalRenderStep<?> matched = bridge.findStepForWaypoint(layerManager, waypoint);
+            com.saifun.map.waypoints.Waypoint.CustomIconDrawer drawer = buildStepIconDrawer(matched);
             ourManager.setNavigatorWaypoint(
                 tagKey,
                 waypoint.label != null ? waypoint.label : "Target",
@@ -808,7 +973,8 @@ public class NavigatorBridge implements IGtnhLayerBridge {
                 waypoint.blockY > 0 ? waypoint.blockY : 70,
                 waypoint.blockZ,
                 waypoint.dimensionId,
-                waypoint.color & 0xFFFFFF
+                waypoint.color & 0xFFFFFF,
+                drawer
             );
         }
 
