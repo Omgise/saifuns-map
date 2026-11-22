@@ -1,19 +1,22 @@
 package com.saifun.map.waypoints;
 
 import com.saifun.map.config.MapConfig;
+import com.saifun.map.render.GLDraw;
 import com.saifun.map.render.GLStateGuard;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityClientPlayerMP;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.renderer.entity.RenderManager;
+import net.minecraft.util.Vec3;
 import org.lwjgl.opengl.GL11;
 
 import java.util.List;
 
 /**
  * Modern Xaero-style 3D in-world waypoint renderer.
- * Renders crisp auto-scaled billboard badges with initials, name, distance, and optional beacon beam.
- * 100% Angelica-safe via GLStateGuard.
+ * - Constant, crisp ~13px screen size at any distance (never blows up across the screen).
+ * - Smart crosshair focus: shows full name & distance smoothly when aiming near the waypoint
+ *   or when close (< 24m); keeps distant/off-axis waypoints as clean minimal badges.
  */
 public class WaypointWorldRenderer {
 
@@ -38,14 +41,14 @@ public class WaypointWorldRenderer {
         double camY = RenderManager.renderPosY;
         double camZ = RenderManager.renderPosZ;
 
+        Vec3 look = player.getLook(partialTicks);
         FontRenderer fr = mc.fontRenderer;
         int maxDist = cfg.maxWaypointRenderDistance;
 
         try (GLStateGuard ignored = new GLStateGuard()) {
             GL11.glDisable(GL11.GL_LIGHTING);
             GL11.glDisable(GL11.GL_CULL_FACE);
-            GL11.glEnable(GL11.GL_BLEND);
-            GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+            GLDraw.ensureBlend();
 
             for (int i = 0; i < waypoints.size(); i++) {
                 Waypoint wp = waypoints.get(i);
@@ -59,102 +62,101 @@ public class WaypointWorldRenderer {
                 double dy = wy - camY;
                 double dz = wz - camZ;
                 double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-                if (dist > maxDist) continue;
+                if (dist > maxDist || dist < 1.5) continue;
 
-                // Optional subtle vertical beacon beam
-                if (cfg.showWaypointBeam && dist > 4.0) {
+                // Dot product with camera view ray to check if player is looking toward this waypoint
+                double invDist = 1.0 / dist;
+                double dot = (dx * invDist) * look.xCoord + (dy * invDist) * look.yCoord + (dz * invDist) * look.zCoord;
+                if (dot < 0.05) continue; // Behind camera
+
+                boolean focused = dot > 0.985; // Aimed within ~10 degrees of crosshair
+                boolean showFullLabel = cfg.alwaysShowWaypointNames || focused || dist < 24.0;
+
+                if (cfg.showWaypointBeam && dist > 6.0 && (focused || dist < 200.0)) {
                     renderBeam(wx - camX, -camY, wz - camZ, wp.color);
                 }
 
-                // Clamp rendering projection distance so distant waypoints stay within clip plane
-                double renderDist = Math.min(dist, 64.0);
-                double scaleFactor = renderDist / Math.max(dist, 0.001);
-                double rx = dx * scaleFactor;
-                double ry = dy * scaleFactor;
-                double rz = dz * scaleFactor;
+                // Project onto fixed depth sphere (48 blocks) for crisp, zero-jitter constant screen pixel size
+                double renderDist = Math.min(dist, 48.0);
+                double proj = renderDist * invDist;
+                double rx = dx * proj;
+                double ry = dy * proj;
+                double rz = dz * proj;
 
-                float baseScale = (float) (0.022 * renderDist * cfg.waypointScale);
-                baseScale = Math.max(0.03f, Math.min(1.6f, baseScale));
+                // Distant off-axis waypoints gently shrink and soften so dozens of waypoints never clutter the view
+                float distFactor = focused ? 1.08f : (dist > 1200.0 ? 0.72f : (dist > 300.0 ? 0.86f : 1.0f));
+                float alpha = focused ? 1.0f : (dist > 2000.0 ? 0.62f : (dist > 500.0 ? 0.80f : 0.95f));
+
+                // ~0.0021 * renderDist yields a crisp ~13-15px badge at 1080p/1440p regardless of distance!
+                float pixelScale = (float) (0.0021 * renderDist * cfg.waypointScale * distFactor);
 
                 GL11.glPushMatrix();
                 GL11.glTranslated(rx, ry, rz);
                 GL11.glRotatef(-RenderManager.instance.playerViewY, 0.0f, 1.0f, 0.0f);
                 GL11.glRotatef(RenderManager.instance.playerViewX, 1.0f, 0.0f, 0.0f);
-                GL11.glScalef(-baseScale, -baseScale, baseScale);
+                GL11.glScalef(-pixelScale, -pixelScale, pixelScale);
 
                 GL11.glDisable(GL11.GL_DEPTH_TEST);
                 GL11.glDepthMask(false);
 
-                // Sleek Xaero-style colored square badge with initials
-                GL11.glDisable(GL11.GL_TEXTURE_2D);
-                int r = (wp.color >>> 16) & 0xFF;
-                int g = (wp.color >>> 8) & 0xFF;
-                int b = wp.color & 0xFF;
+                // Sleek compact Xaero-style badge
+                double hs = focused ? 7.2 : 6.0;
+                GLDraw.rect(-hs - 1.0, -hs - 1.0, hs + 1.0, hs + 1.0, GLDraw.withAlpha(0x0B0E14, alpha * 0.92f));
+                GLDraw.rect(-hs, -hs, hs, hs, GLDraw.withAlpha(wp.color, alpha * 0.92f));
 
-                // Dark outline
-                drawQuad(-8.0, -8.0, 8.0, 8.0, 0xCC0D1117);
-                // Colored badge fill
-                drawQuad(-6.8, -6.8, 6.8, 6.8, (0xE6 << 24) | (r << 16) | (g << 8) | b);
-
-                GL11.glEnable(GL11.GL_TEXTURE_2D);
                 String init = wp.initials != null ? wp.initials : "W";
-                int iw = fr.getStringWidth(init);
-                fr.drawStringWithShadow(init, -iw / 2, -4, 0xFFFFFFFF);
+                GLDraw.drawCenteredText(fr, init, 0.2, -3.5, 0.85f, GLDraw.withAlpha(0xFFFFFF, alpha));
 
-                // Name + distance pill below badge
-                String distStr = Math.round(dist) + "m";
-                String label = wp.name + " \u00a77(" + distStr + ")";
-                int lw = fr.getStringWidth(label);
-                GL11.glPushMatrix();
-                GL11.glTranslated(0.0, 10.5, 0.0);
-                GL11.glScalef(0.82f, 0.82f, 1.0f);
-                GL11.glDisable(GL11.GL_TEXTURE_2D);
-                drawQuad(-lw * 0.5 - 3.0, -1.5, lw * 0.5 + 3.0, fr.FONT_HEIGHT + 1.5, 0xAA0B0E14);
-                GL11.glEnable(GL11.GL_TEXTURE_2D);
-                fr.drawStringWithShadow(label, -lw / 2, 0, 0xFFF1F5F9);
-                GL11.glPopMatrix();
+                if (showFullLabel) {
+                    String distStr = formatDistance(dist);
+                    String label = wp.name + " \u00a77(" + distStr + ")";
+                    float textScale = 0.76f;
+                    int lw = fr.getStringWidth(label);
+                    double bw = (lw * textScale) * 0.5 + 3.0;
+                    double ty = hs + 2.6;
+                    GLDraw.rect(-bw, ty - 1.0, bw, ty + fr.FONT_HEIGHT * textScale + 1.2, GLDraw.withAlpha(0x0A0D12, alpha * 0.76f));
+                    GLDraw.drawCenteredText(fr, label, 0.0, ty, textScale, GLDraw.withAlpha(0xF8FAFC, alpha));
+                } else if (dist < 250.0) {
+                    // Subtle compact distance tag under nearby unfocused waypoints
+                    String distStr = formatDistance(dist);
+                    GLDraw.drawCenteredText(fr, distStr, 0.0, hs + 2.0, 0.62f, GLDraw.withAlpha(0xCBD5E1, alpha * 0.85f));
+                }
 
                 GL11.glPopMatrix();
             }
         }
     }
 
+    private static String formatDistance(double dist) {
+        if (dist >= 1000.0) {
+            return String.format("%.1fkm", dist / 1000.0);
+        }
+        return Math.round(dist) + "m";
+    }
+
     private static void renderBeam(double rx, double baseY, double rz, int color) {
         GL11.glEnable(GL11.GL_DEPTH_TEST);
         GL11.glDepthMask(false);
+        GLDraw.ensureBlend();
         GL11.glDisable(GL11.GL_TEXTURE_2D);
 
         float r = ((color >>> 16) & 0xFF) / 255.0f;
         float g = ((color >>> 8) & 0xFF) / 255.0f;
         float b = (color & 0xFF) / 255.0f;
-        double hw = 0.16;
+        double hw = 0.14;
 
-        GL11.glColor4f(r, g, b, 0.28f);
+        GL11.glColor4f(r, g, b, 0.22f);
         GL11.glBegin(GL11.GL_QUADS);
-        // X-aligned plane
         GL11.glVertex3d(rx - hw, baseY, rz);
         GL11.glVertex3d(rx + hw, baseY, rz);
         GL11.glVertex3d(rx + hw, baseY + 256.0, rz);
         GL11.glVertex3d(rx - hw, baseY + 256.0, rz);
-        // Z-aligned plane
         GL11.glVertex3d(rx, baseY, rz - hw);
         GL11.glVertex3d(rx, baseY, rz + hw);
         GL11.glVertex3d(rx, baseY + 256.0, rz + hw);
         GL11.glVertex3d(rx, baseY + 256.0, rz - hw);
         GL11.glEnd();
-    }
-
-    private static void drawQuad(double x1, double y1, double x2, double y2, int argb) {
-        float a = ((argb >>> 24) & 0xFF) / 255.0f;
-        float r = ((argb >>> 16) & 0xFF) / 255.0f;
-        float g = ((argb >>> 8) & 0xFF) / 255.0f;
-        float b = (argb & 0xFF) / 255.0f;
-        GL11.glColor4f(r, g, b, a);
-        GL11.glBegin(GL11.GL_QUADS);
-        GL11.glVertex2d(x1, y2);
-        GL11.glVertex2d(x2, y2);
-        GL11.glVertex2d(x2, y1);
-        GL11.glVertex2d(x1, y1);
-        GL11.glEnd();
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
     }
 }

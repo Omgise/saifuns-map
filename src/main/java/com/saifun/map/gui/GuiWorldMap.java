@@ -5,35 +5,72 @@ import com.saifun.map.config.MapConfig;
 import com.saifun.map.engine.ChunkScanner;
 import com.saifun.map.engine.MapRegion;
 import com.saifun.map.engine.MapWorldCache;
+import com.saifun.map.radar.EntityCategory;
 import com.saifun.map.radar.EntityIconRenderer;
 import com.saifun.map.radar.EntityRadarManager;
 import com.saifun.map.radar.RadarEntity;
+import com.saifun.map.render.GLDraw;
 import com.saifun.map.render.GLStateGuard;
 import com.saifun.map.waypoints.Waypoint;
 import com.saifun.map.waypoints.WaypointManager;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityClientPlayerMP;
-import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.GuiTextField;
 import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.MathHelper;
 import net.minecraft.world.World;
+import net.minecraft.world.biome.BiomeGenBase;
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
 import org.lwjgl.opengl.GL11;
 
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 /**
- * Fullscreen World Map in modern Xaero 24.x/25.x style with full GTNH Navigator parity
- * (VisualProspecting ore veins, underground fluids, Thaumcraft nodes, search bar, ServerUtilities claims),
- * unrestricted entity radar, waypoints, and right-click context menu.
+ * Fullscreen World Map redesigned 1-to-1 in modern Xaero's World Map minimalism (v2.0):
+ * - Zero bulky top bars or gray vanilla buttons.
+ * - Floating bare shadowed coordinates & biome at top-center, minimalist compass rose top-right,
+ *   sleek gear top-left, compact vector icon rail bottom-right, GTNH Navigator rail bottom-left.
+ * - True deltaTime-based smooth cursor-anchored exponential zoom, pan inertia, and smooth center glide.
+ * - Smart mob head scaling/fading at low zoom (players always crisp at any zoom).
  */
 public class GuiWorldMap extends GuiScreen {
+
+    private static final class IconButton {
+        final int id;
+        final int x, y, size;
+        final String tooltip;
+        final boolean active;
+
+        IconButton(int id, int x, int y, int size, String tooltip, boolean active) {
+            this.id = id;
+            this.x = x;
+            this.y = y;
+            this.size = size;
+            this.tooltip = tooltip;
+            this.active = active;
+        }
+
+        boolean hit(int mx, int my) {
+            return mx >= x && mx <= x + size && my >= y && my <= y + size;
+        }
+    }
+
+    private static final int BTN_SETTINGS = 1;
+    private static final int BTN_ZOOM_IN = 2;
+    private static final int BTN_ZOOM_OUT = 3;
+    private static final int BTN_CENTER = 4;
+    private static final int BTN_CAVE = 5;
+    private static final int BTN_ORE_GRID = 6;
+    private static final int BTN_CHUNK_GRID = 7;
+    private static final int BTN_WAYPOINTS = 8;
 
     private final MapWorldCache worldCache;
     private final ChunkScanner chunkScanner;
@@ -43,17 +80,34 @@ public class GuiWorldMap extends GuiScreen {
 
     private double centerX;
     private double centerZ;
-    private double targetZoom = 1.0; // pixels per block
-    private double currentZoom = 1.0;
+    private double targetZoom = 1.5;
+    private double currentZoom = 1.5;
     private boolean caveModeView;
+
+    // Smooth cursor-anchored zoom state
+    private boolean zoomAnimating = false;
+    private double zoomAnchorScreenX;
+    private double zoomAnchorScreenY;
+    private double zoomAnchorWorldX;
+    private double zoomAnchorWorldZ;
+
+    // Smooth pan inertia & center-glide state
+    private double velX = 0.0;
+    private double velZ = 0.0;
+    private boolean glidingToTarget = false;
+    private double glideTargetX;
+    private double glideTargetZ;
 
     private boolean dragging = false;
     private int dragStartMouseX;
     private int dragStartMouseY;
+    private int prevMouseX;
+    private int prevMouseY;
     private double dragStartCenterX;
     private double dragStartCenterZ;
     private boolean dragMoved = false;
 
+    private long lastFrameNanos = 0L;
     private long lastLeftClickMs = 0L;
     private int lastClickX = 0;
     private int lastClickY = 0;
@@ -65,9 +119,11 @@ public class GuiWorldMap extends GuiScreen {
     private int contextBlockX;
     private int contextBlockZ;
 
-    // GTNH Navigator search bar (for VisualProspecting vein/fluid search)
+    // GTNH Navigator search bar
     private GuiTextField searchField;
     private String lastSearchText = "";
+
+    private final List<IconButton> uiButtons = new ArrayList<>();
 
     public GuiWorldMap(
         MapWorldCache worldCache,
@@ -93,18 +149,35 @@ public class GuiWorldMap extends GuiScreen {
         }
         caveModeView = chunkScanner.isCaveModeActive();
         gtnhBridge.onWorldMapOpened();
+        lastFrameNanos = System.nanoTime();
 
-        this.buttonList.clear();
-        int bx = this.width - 62;
-        this.buttonList.add(new GuiButton(1, bx, 6, 56, 18, "Center"));
-        this.buttonList.add(new GuiButton(2, bx - 58, 6, 54, 18, caveModeView ? "Cave: ON" : "Surface"));
-        this.buttonList.add(new GuiButton(3, bx - 122, 6, 60, 18, MapConfig.get().showOreVeinGrid ? "Veins: ON" : "Veins: OFF"));
-        this.buttonList.add(new GuiButton(4, bx - 190, 6, 64, 18, "Waypoints"));
-        this.buttonList.add(new GuiButton(5, bx - 248, 6, 54, 18, "Settings"));
-
-        searchField = new GuiTextField(this.fontRendererObj, this.width / 2 - 110, this.height - 26, 220, 18);
+        searchField = new GuiTextField(this.fontRendererObj, this.width / 2 - 96, this.height - 26, 192, 16);
         searchField.setMaxStringLength(64);
         searchField.setText(lastSearchText);
+        rebuildIconButtons();
+    }
+
+    private void rebuildIconButtons() {
+        uiButtons.clear();
+        MapConfig cfg = MapConfig.get();
+
+        // Top-left Gear (Settings) — matching modern Xaero screenshot #7
+        uiButtons.add(new IconButton(BTN_SETTINGS, 8, 8, 18, "Settings (Y)", false));
+
+        // Bottom-right sleek vertical icon rail — matching modern Xaero screenshot #7
+        int rx = this.width - 24;
+        int bs = 18;
+        int step = 21;
+        int count = 7;
+        int startY = this.height - 10 - count * step;
+
+        uiButtons.add(new IconButton(BTN_ZOOM_IN, rx, startY, bs, "Zoom In (+)", false));
+        uiButtons.add(new IconButton(BTN_ZOOM_OUT, rx, startY + step, bs, "Zoom Out (-)", false));
+        uiButtons.add(new IconButton(BTN_CENTER, rx, startY + step * 2, bs, "Center on Player", false));
+        uiButtons.add(new IconButton(BTN_CAVE, rx, startY + step * 3, bs, caveModeView ? "Cave Mode (ON)" : "Surface Mode", caveModeView));
+        uiButtons.add(new IconButton(BTN_ORE_GRID, rx, startY + step * 4, bs, cfg.showOreVeinGrid ? "GT Ore Vein Grid 3x3 (ON)" : "GT Ore Vein Grid 3x3 (OFF)", cfg.showOreVeinGrid));
+        uiButtons.add(new IconButton(BTN_CHUNK_GRID, rx, startY + step * 5, bs, cfg.showChunkGrid ? "Chunk Grid 16x16 (ON)" : "Chunk Grid 16x16 (OFF)", cfg.showChunkGrid));
+        uiButtons.add(new IconButton(BTN_WAYPOINTS, rx, startY + step * 6, bs, "Waypoints (U)", false));
     }
 
     @Override
@@ -113,32 +186,18 @@ public class GuiWorldMap extends GuiScreen {
         gtnhBridge.onWorldMapClosed();
     }
 
-    @Override
-    protected void actionPerformed(GuiButton button) {
-        contextMenuOpen = false;
-        switch (button.id) {
-            case 1:
-                if (mc.thePlayer != null) {
-                    centerX = mc.thePlayer.posX;
-                    centerZ = mc.thePlayer.posZ;
-                }
-                break;
-            case 2:
-                caveModeView = !caveModeView;
-                button.displayString = caveModeView ? "Cave: ON" : "Surface";
-                break;
-            case 3:
-                MapConfig.get().showOreVeinGrid = !MapConfig.get().showOreVeinGrid;
-                MapConfig.save();
-                button.displayString = MapConfig.get().showOreVeinGrid ? "Veins: ON" : "Veins: OFF";
-                break;
-            case 4:
-                mc.displayGuiScreen(new GuiWaypoints(this, waypointManager));
-                break;
-            case 5:
-                mc.displayGuiScreen(new GuiMapSettings());
-                break;
-        }
+    private void triggerSmoothZoom(double factor, double anchorScreenX, double anchorScreenY) {
+        double newTarget = Math.max(0.125, Math.min(16.0, targetZoom * factor));
+        if (Math.abs(newTarget - targetZoom) < 1e-4) return;
+        this.zoomAnchorScreenX = anchorScreenX;
+        this.zoomAnchorScreenY = anchorScreenY;
+        this.zoomAnchorWorldX = screenToWorldX(anchorScreenX);
+        this.zoomAnchorWorldZ = screenToWorldZ(anchorScreenY);
+        this.targetZoom = newTarget;
+        this.zoomAnimating = true;
+        this.glidingToTarget = false;
+        this.velX = 0.0;
+        this.velZ = 0.0;
     }
 
     @Override
@@ -148,29 +207,14 @@ public class GuiWorldMap extends GuiScreen {
         if (wheel != 0) {
             int mx = Mouse.getEventX() * this.width / this.mc.displayWidth;
             int my = this.height - Mouse.getEventY() * this.height / this.mc.displayHeight - 1;
-
-            double beforeWorldX = screenToWorldX(mx);
-            double beforeWorldZ = screenToWorldZ(my);
-
-            if (wheel > 0) {
-                targetZoom = Math.min(16.0, targetZoom * 1.28);
-            } else {
-                targetZoom = Math.max(0.125, targetZoom / 1.28);
-            }
-
-            // Keep block under cursor anchored while zooming
-            currentZoom = targetZoom;
-            double afterWorldX = screenToWorldX(mx);
-            double afterWorldZ = screenToWorldZ(my);
-            centerX += (beforeWorldX - afterWorldX);
-            centerZ += (beforeWorldZ - afterWorldZ);
+            double factor = wheel > 0 ? 1.32 : (1.0 / 1.32);
+            triggerSmoothZoom(factor, mx, my);
             contextMenuOpen = false;
         }
     }
 
     @Override
     protected void mouseClicked(int mouseX, int mouseY, int mouseButton) {
-        // 1. Right-click context menu handling
         if (contextMenuOpen) {
             if (handleContextMenuClick(mouseX, mouseY)) {
                 contextMenuOpen = false;
@@ -179,42 +223,88 @@ public class GuiWorldMap extends GuiScreen {
             contextMenuOpen = false;
         }
 
-        // 2. Search bar click
         if (gtnhBridge.hasActiveSearchBar() && searchField != null) {
             searchField.mouseClicked(mouseX, mouseY, mouseButton);
             if (searchField.isFocused()) return;
         }
 
-        // 3. Left GTNH Navigator Layer Toolbar buttons
+        if (mouseButton == 0 && handleUiIconClick(mouseX, mouseY)) {
+            return;
+        }
+
         if (mouseButton == 0 && handleLayerToolbarClick(mouseX, mouseY)) {
             return;
         }
 
-        // 4. Top bar buttons
-        if (mouseY <= 28) {
-            super.mouseClicked(mouseX, mouseY, mouseButton);
-            return;
-        }
-
-        // 5. Right click -> open context menu
         if (mouseButton == 1) {
             contextMenuOpen = true;
-            contextMenuX = Math.min(mouseX, this.width - 132);
+            contextMenuX = Math.min(mouseX, this.width - 134);
             contextMenuY = Math.min(mouseY, this.height - 96);
             contextBlockX = MathHelper.floor_double(screenToWorldX(mouseX));
             contextBlockZ = MathHelper.floor_double(screenToWorldZ(mouseY));
             return;
         }
 
-        // 6. Left click -> begin drag & detect single/double click
         if (mouseButton == 0) {
             dragging = true;
             dragMoved = false;
+            zoomAnimating = false;
+            glidingToTarget = false;
+            velX = 0.0;
+            velZ = 0.0;
             dragStartMouseX = mouseX;
             dragStartMouseY = mouseY;
+            prevMouseX = mouseX;
+            prevMouseY = mouseY;
             dragStartCenterX = centerX;
             dragStartCenterZ = centerZ;
         }
+    }
+
+    private boolean handleUiIconClick(int mouseX, int mouseY) {
+        for (int i = 0; i < uiButtons.size(); i++) {
+            IconButton b = uiButtons.get(i);
+            if (!b.hit(mouseX, mouseY)) continue;
+            switch (b.id) {
+                case BTN_SETTINGS:
+                    mc.displayGuiScreen(new GuiMapSettings());
+                    return true;
+                case BTN_ZOOM_IN:
+                    triggerSmoothZoom(1.45, this.width * 0.5, this.height * 0.5);
+                    return true;
+                case BTN_ZOOM_OUT:
+                    triggerSmoothZoom(1.0 / 1.45, this.width * 0.5, this.height * 0.5);
+                    return true;
+                case BTN_CENTER:
+                    if (mc.thePlayer != null) {
+                        glideTargetX = mc.thePlayer.posX;
+                        glideTargetZ = mc.thePlayer.posZ;
+                        glidingToTarget = true;
+                        zoomAnimating = false;
+                        velX = 0.0;
+                        velZ = 0.0;
+                    }
+                    return true;
+                case BTN_CAVE:
+                    caveModeView = !caveModeView;
+                    rebuildIconButtons();
+                    return true;
+                case BTN_ORE_GRID:
+                    MapConfig.get().showOreVeinGrid = !MapConfig.get().showOreVeinGrid;
+                    MapConfig.save();
+                    rebuildIconButtons();
+                    return true;
+                case BTN_CHUNK_GRID:
+                    MapConfig.get().showChunkGrid = !MapConfig.get().showChunkGrid;
+                    MapConfig.save();
+                    rebuildIconButtons();
+                    return true;
+                case BTN_WAYPOINTS:
+                    mc.displayGuiScreen(new GuiWaypoints(this, waypointManager));
+                    return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -225,6 +315,13 @@ public class GuiWorldMap extends GuiScreen {
             if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
                 dragMoved = true;
             }
+            double stepX = -(mouseX - prevMouseX) / currentZoom;
+            double stepZ = -(mouseY - prevMouseY) / currentZoom;
+            velX = velX * 0.45 + stepX * 22.0 * 0.55;
+            velZ = velZ * 0.45 + stepZ * 22.0 * 0.55;
+            prevMouseX = mouseX;
+            prevMouseY = mouseY;
+
             centerX = dragStartCenterX - dx / currentZoom;
             centerZ = dragStartCenterZ - dy / currentZoom;
         }
@@ -235,7 +332,9 @@ public class GuiWorldMap extends GuiScreen {
         super.mouseMovedOrUp(mouseX, mouseY, state);
         if (state == 0 && dragging) {
             dragging = false;
-            if (!dragMoved && mouseY > 28) {
+            if (!dragMoved) {
+                velX = 0.0;
+                velZ = 0.0;
                 long now = System.currentTimeMillis();
                 boolean isDoubleClick = (now - lastLeftClickMs < 350L)
                     && Math.abs(mouseX - lastClickX) < 6
@@ -247,12 +346,10 @@ public class GuiWorldMap extends GuiScreen {
                 int bx = MathHelper.floor_double(screenToWorldX(mouseX));
                 int bz = MathHelper.floor_double(screenToWorldZ(mouseY));
 
-                // Offer click to GTNH Navigator layers first (VisualProspecting veins / ServerUtilities claims!)
                 if (gtnhBridge.onMapClick(isDoubleClick, mouseX, mouseY, bx, bz)) {
                     return;
                 }
 
-                // Double-click empty terrain -> quick add waypoint!
                 if (isDoubleClick && mc.theWorld != null) {
                     int y = estimateSurfaceY(bx, bz);
                     mc.displayGuiScreen(new GuiWaypointEdit(this, waypointManager, null, bx, y, bz, mc.theWorld.provider.dimensionId));
@@ -282,19 +379,23 @@ public class GuiWorldMap extends GuiScreen {
             return;
         }
 
-        // Pass action keys (e.g. Delete on hovered VisualProspecting ore vein to mark depleted!) to Navigator
         if (gtnhBridge.onKeyPressed(keyCode)) {
             return;
         }
 
-        // Smooth WASD / Arrow keyboard panning
-        double panStep = 64.0 / currentZoom;
-        if (keyCode == Keyboard.KEY_W || keyCode == Keyboard.KEY_UP) centerZ -= panStep;
-        else if (keyCode == Keyboard.KEY_S || keyCode == Keyboard.KEY_DOWN) centerZ += panStep;
-        else if (keyCode == Keyboard.KEY_A || keyCode == Keyboard.KEY_LEFT) centerX -= panStep;
-        else if (keyCode == Keyboard.KEY_D || keyCode == Keyboard.KEY_RIGHT) centerX += panStep;
-        else if (keyCode == Keyboard.KEY_EQUALS || keyCode == Keyboard.KEY_ADD) targetZoom = Math.min(16.0, targetZoom * 1.3);
-        else if (keyCode == Keyboard.KEY_MINUS || keyCode == Keyboard.KEY_SUBTRACT) targetZoom = Math.max(0.125, targetZoom / 1.3);
+        if (keyCode == Keyboard.KEY_EQUALS || keyCode == Keyboard.KEY_ADD) {
+            triggerSmoothZoom(1.38, this.width * 0.5, this.height * 0.5);
+        } else if (keyCode == Keyboard.KEY_MINUS || keyCode == Keyboard.KEY_SUBTRACT) {
+            triggerSmoothZoom(1.0 / 1.38, this.width * 0.5, this.height * 0.5);
+        } else if (keyCode == Keyboard.KEY_C && mc.thePlayer != null) {
+            glideTargetX = mc.thePlayer.posX;
+            glideTargetZ = mc.thePlayer.posZ;
+            glidingToTarget = true;
+        } else if (keyCode == Keyboard.KEY_U) {
+            mc.displayGuiScreen(new GuiWaypoints(this, waypointManager));
+        } else if (keyCode == Keyboard.KEY_Y) {
+            mc.displayGuiScreen(new GuiMapSettings());
+        }
     }
 
     @Override
@@ -304,20 +405,90 @@ public class GuiWorldMap extends GuiScreen {
         }
     }
 
+    private void updateAnimations(double dt) {
+        // 1. Silky-smooth cursor-anchored exponential zoom
+        if (zoomAnimating) {
+            double ease = 1.0 - Math.exp(-dt * 15.0);
+            double logCur = Math.log(currentZoom);
+            double logTar = Math.log(targetZoom);
+            double nextLog = logCur + (logTar - logCur) * ease;
+            currentZoom = Math.exp(nextLog);
+
+            // Lock the cursor's world block right under the cursor throughout the zoom!
+            centerX = zoomAnchorWorldX - (zoomAnchorScreenX - this.width * 0.5) / currentZoom;
+            centerZ = zoomAnchorWorldZ - (zoomAnchorScreenY - this.height * 0.5) / currentZoom;
+
+            if (Math.abs(targetZoom - currentZoom) / targetZoom < 0.002) {
+                currentZoom = targetZoom;
+                centerX = zoomAnchorWorldX - (zoomAnchorScreenX - this.width * 0.5) / currentZoom;
+                centerZ = zoomAnchorWorldZ - (zoomAnchorScreenY - this.height * 0.5) / currentZoom;
+                zoomAnimating = false;
+            }
+        }
+
+        // 2. Smooth WASD / arrow continuous panning
+        if (searchField == null || !searchField.isFocused()) {
+            double speed = (360.0 / currentZoom) * dt;
+            if (Keyboard.isKeyDown(Keyboard.KEY_W) || Keyboard.isKeyDown(Keyboard.KEY_UP)) {
+                centerZ -= speed;
+                glidingToTarget = false;
+                zoomAnimating = false;
+            }
+            if (Keyboard.isKeyDown(Keyboard.KEY_S) || Keyboard.isKeyDown(Keyboard.KEY_DOWN)) {
+                centerZ += speed;
+                glidingToTarget = false;
+                zoomAnimating = false;
+            }
+            if (Keyboard.isKeyDown(Keyboard.KEY_A) || Keyboard.isKeyDown(Keyboard.KEY_LEFT)) {
+                centerX -= speed;
+                glidingToTarget = false;
+                zoomAnimating = false;
+            }
+            if (Keyboard.isKeyDown(Keyboard.KEY_D) || Keyboard.isKeyDown(Keyboard.KEY_RIGHT)) {
+                centerX += speed;
+                glidingToTarget = false;
+                zoomAnimating = false;
+            }
+        }
+
+        // 3. Smooth drag inertia after mouse release
+        if (!dragging && !glidingToTarget && (Math.abs(velX) > 0.5 || Math.abs(velZ) > 0.5)) {
+            centerX += velX * dt;
+            centerZ += velZ * dt;
+            double damp = Math.exp(-dt * 9.5);
+            velX *= damp;
+            velZ *= damp;
+        }
+
+        // 4. Smooth center-on-player glide
+        if (glidingToTarget) {
+            double ease = 1.0 - Math.exp(-dt * 12.0);
+            centerX += (glideTargetX - centerX) * ease;
+            centerZ += (glideTargetZ - centerZ) * ease;
+            if (Math.hypot(glideTargetX - centerX, glideTargetZ - centerZ) < 0.15) {
+                centerX = glideTargetX;
+                centerZ = glideTargetZ;
+                glidingToTarget = false;
+            }
+        }
+    }
+
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
         World world = mc.theWorld;
         EntityClientPlayerMP player = mc.thePlayer;
         if (world == null || player == null) return;
 
+        long now = System.nanoTime();
+        double dt = lastFrameNanos == 0L ? 0.016 : Math.min(0.08, (now - lastFrameNanos) * 1e-9);
+        lastFrameNanos = now;
+
         worldCache.onRenderTick();
-        currentZoom += (targetZoom - currentZoom) * 0.35;
-        if (Math.abs(currentZoom - targetZoom) < 0.002) currentZoom = targetZoom;
+        updateAnimations(dt);
 
         double cxScreen = this.width * 0.5;
         double cyScreen = this.height * 0.5;
 
-        // Notify Navigator of cursor position for tooltips/hover
         if (!contextMenuOpen) {
             gtnhBridge.onMouseMove(mouseX, mouseY);
         }
@@ -326,61 +497,58 @@ public class GuiWorldMap extends GuiScreen {
             GL11.glDisable(GL11.GL_LIGHTING);
             GL11.glDisable(GL11.GL_CULL_FACE);
             GL11.glDisable(GL11.GL_DEPTH_TEST);
-            GL11.glEnable(GL11.GL_BLEND);
-            GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+            GLDraw.ensureBlend();
 
-            // 1. Deep dark backdrop
-            drawRect(0, 0, this.width, this.height, 0xFF0A0E14);
+            // 1. Clean dark canvas
+            GLDraw.rect(0, 0, this.width, this.height, 0xFF0A0D12);
 
-            // 2. Explored Map Regions (auto-triggers lazy async disk load as you pan!)
+            // 2. Explored Map Regions
             renderMapRegions(cxScreen, cyScreen);
 
-            // 3. Overlays (Slime Chunks, Chunk Grid, GTNH 3x3 Ore Vein Grid)
+            // 3. Explored-only Overlays (Chunk Grid, GT 3x3 Ore Vein Grid, Slime Chunks)
             renderWorldOverlays(world, cxScreen, cyScreen);
 
-            // 4. GTNH Navigator Layers (VisualProspecting Ore Veins, Fluids, Thaumcraft Nodes, ServerUtilities Claims!)
+            // 4. GTNH Navigator Layers (VisualProspecting Ore Veins, Fluids, Nodes, ServerUtilities Claims)
             gtnhBridge.renderFullscreenLayers(
                 this, centerX, centerZ, cxScreen, cyScreen, currentZoom, this.width, this.height
             );
 
-            // 5. Entity Radar (All visible players & mobs, zero FairPlay limits)
+            // 5. Entity Radar (Players always crisp; mobs scale & fade smoothly at low zoom!)
             renderWorldEntities(player, cxScreen, cyScreen, partialTicks);
 
             // 6. Waypoints
             Waypoint hoveredWp = renderWorldWaypoints(world.provider.dimensionId, cxScreen, cyScreen, mouseX, mouseY);
 
-            // 7. Player Marker
+            // 7. Crisp red-accent Xaero player arrow
             double pSx = worldToScreenX(player.posX, cxScreen);
             double pSy = worldToScreenY(player.posZ, cyScreen);
             drawPlayerChevron(pSx, pSy, player.rotationYaw - 180.0f);
 
-            // 8. Left-side GTNH Navigator Layer Toggle Toolbar
+            // 8. Minimalist Top-Center Floating Coordinates & Biome (exact Xaero screenshot #7!)
+            renderFloatingCoords(world, mouseX, mouseY);
+
+            // 9. Minimalist Top-Right Compass Rose (exact Xaero screenshot #7!)
+            renderCompassRose(this.width - 20, 20);
+
+            // 10. Minimalist Floating Icon Buttons (Gear top-left + vertical strip bottom-right)
+            String hoveredUiTip = renderUiIcons(mouseX, mouseY);
+
+            // 11. Bottom-Left GTNH Navigator Layer Icons
             String hoveredLayerLabel = renderLayerToolbar(mouseX, mouseY);
 
-            // 9. Top translucent Xaero-style HUD Bar
-            renderTopBar(world, mouseX, mouseY);
+            // 12. Bottom-Center subtle zoom readout + Search Bar (when VisualProspecting layer is active)
+            renderBottomControls();
 
-            // 10. Search Bar (when VisualProspecting / searchable Navigator layer is active)
-            if (gtnhBridge.hasActiveSearchBar() && searchField != null) {
-                drawRect(searchField.xPosition - 4, searchField.yPosition - 4, searchField.xPosition + searchField.width + 4, searchField.yPosition + searchField.height + 4, 0xCC0E1218);
-                searchField.drawTextBox();
-                if (searchField.getText().isEmpty() && !searchField.isFocused()) {
-                    this.fontRendererObj.drawStringWithShadow("Search GTNH ores / fluids...", searchField.xPosition + 4, searchField.yPosition + 5, 0xFF64748B);
-                }
-            }
-
-            // 11. Standard top buttons
-            super.drawScreen(mouseX, mouseY, partialTicks);
-
-            // 12. Right-click Context Menu
+            // 13. Right-click Context Menu OR Hover Tooltip
             if (contextMenuOpen) {
                 renderContextMenu(mouseX, mouseY);
             } else {
-                // 13. Tooltips (Layer toolbar, Waypoints, or Navigator steps!)
-                if (hoveredLayerLabel != null) {
-                    drawHoveringText(java.util.Collections.singletonList(hoveredLayerLabel), mouseX, mouseY, this.fontRendererObj);
+                if (hoveredUiTip != null) {
+                    drawHoveringText(Collections.singletonList(hoveredUiTip), mouseX, mouseY, this.fontRendererObj);
+                } else if (hoveredLayerLabel != null) {
+                    drawHoveringText(Collections.singletonList(hoveredLayerLabel), mouseX, mouseY, this.fontRendererObj);
                 } else if (hoveredWp != null) {
-                    List<String> tip = java.util.Arrays.asList(
+                    List<String> tip = Arrays.asList(
                         "\u00a7f\u00a7l" + hoveredWp.name,
                         String.format("\u00a77X: %d  Y: %d  Z: %d (Dim %d)", hoveredWp.x, hoveredWp.y, hoveredWp.z, hoveredWp.dimensionId)
                     );
@@ -407,7 +575,8 @@ public class GuiWorldMap extends GuiScreen {
         int minRz = Math.floorDiv(MathHelper.floor_double(minWorldZ), MapRegion.SIZE);
         int maxRz = Math.floorDiv(MathHelper.floor_double(maxWorldZ), MapRegion.SIZE);
 
-        boolean linear = currentZoom < 1.2;
+        boolean linear = currentZoom < 1.25;
+        GLDraw.ensureBlend();
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
 
@@ -443,75 +612,98 @@ public class GuiWorldMap extends GuiScreen {
         int minCz = Math.floorDiv(MathHelper.floor_double(screenToWorldZ(0)), 16);
         int maxCz = Math.floorDiv(MathHelper.floor_double(screenToWorldZ(this.height)), 16);
 
-        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GLDraw.ensureBlend();
 
-        // Filled chunk tints only when zoomed close enough to stay readable & fast
-        if (currentZoom >= 0.4 && (cfg.showSlimeChunks || (cfg.showOreVeinGrid && cfg.highlightOreVeinCenter))) {
+        // Explored-only chunk fills
+        if (currentZoom >= 0.45 && (cfg.showSlimeChunks || (cfg.showOreVeinGrid && cfg.highlightOreVeinCenter))) {
             for (int cz = minCz; cz <= maxCz; cz++) {
                 for (int cx = minCx; cx <= maxCx; cx++) {
+                    if (!worldCache.isChunkExplored(cx, cz)) continue;
                     double sx1 = worldToScreenX(cx << 4, cxScreen);
                     double sy1 = worldToScreenY(cz << 4, cyScreen);
                     double sx2 = sx1 + 16.0 * currentZoom;
                     double sy2 = sy1 + 16.0 * currentZoom;
                     if (cfg.showSlimeChunks && ChunkScanner.isSlimeChunk(world, cx, cz)) {
-                        drawQuad(sx1, sy1, sx2, sy2, cfg.slimeChunkColor);
+                        GLDraw.rect(sx1, sy1, sx2, sy2, cfg.slimeChunkColor);
                     }
                     if (cfg.showOreVeinGrid && cfg.highlightOreVeinCenter && ChunkScanner.isOreVeinCenterChunk(cx, cz)) {
-                        drawQuad(sx1, sy1, sx2, sy2, cfg.oreVeinCenterColor);
+                        GLDraw.rect(sx1, sy1, sx2, sy2, cfg.oreVeinCenterColor);
                     }
                 }
             }
         }
 
-        if (cfg.showChunkGrid && currentZoom >= 0.5) {
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+
+        if (cfg.showChunkGrid && currentZoom >= 0.55) {
             GL11.glLineWidth(1.0f);
-            setColor(cfg.chunkGridColor);
+            GLDraw.setColor(cfg.chunkGridColor);
             GL11.glBegin(GL11.GL_LINES);
-            for (int cx = minCx; cx <= maxCx + 1; cx++) {
-                double sx = worldToScreenX(cx << 4, cxScreen);
-                GL11.glVertex2d(sx, 0);
-                GL11.glVertex2d(sx, this.height);
-            }
-            for (int cz = minCz; cz <= maxCz + 1; cz++) {
-                double sy = worldToScreenY(cz << 4, cyScreen);
-                GL11.glVertex2d(0, sy);
-                GL11.glVertex2d(this.width, sy);
+            for (int cz = minCz; cz <= maxCz; cz++) {
+                for (int cx = minCx; cx <= maxCx; cx++) {
+                    if (!worldCache.isChunkExplored(cx, cz)) continue;
+                    double x1 = worldToScreenX(cx << 4, cxScreen);
+                    double y1 = worldToScreenY(cz << 4, cyScreen);
+                    double x2 = x1 + 16.0 * currentZoom;
+                    double y2 = y1 + 16.0 * currentZoom;
+                    GL11.glVertex2d(x1, y1);
+                    GL11.glVertex2d(x2, y1);
+                    GL11.glVertex2d(x1, y1);
+                    GL11.glVertex2d(x1, y2);
+                }
             }
             GL11.glEnd();
         }
 
-        if (cfg.showOreVeinGrid && currentZoom >= 0.25) {
-            GL11.glLineWidth(1.5f);
-            setColor(cfg.oreVeinGridColor);
+        // Clean thin semi-transparent GT 3x3 Ore Vein lines ONLY over explored chunks!
+        if (cfg.showOreVeinGrid && currentZoom >= 0.30) {
+            GL11.glLineWidth(1.0f);
+            GLDraw.setColor(cfg.oreVeinGridColor);
             GL11.glBegin(GL11.GL_LINES);
-            for (int cx = minCx; cx <= maxCx + 1; cx++) {
-                if (!ChunkScanner.isOreVeinBorderChunk(cx)) continue;
-                double sx = worldToScreenX(cx << 4, cxScreen);
-                GL11.glVertex2d(sx, 0);
-                GL11.glVertex2d(sx, this.height);
-            }
-            for (int cz = minCz; cz <= maxCz + 1; cz++) {
-                if (!ChunkScanner.isOreVeinBorderChunk(cz)) continue;
-                double sy = worldToScreenY(cz << 4, cyScreen);
-                GL11.glVertex2d(0, sy);
-                GL11.glVertex2d(this.width, sy);
+            for (int cz = minCz; cz <= maxCz; cz++) {
+                for (int cx = minCx; cx <= maxCx; cx++) {
+                    if (!worldCache.isChunkExplored(cx, cz)) continue;
+                    double x1 = worldToScreenX(cx << 4, cxScreen);
+                    double y1 = worldToScreenY(cz << 4, cyScreen);
+                    double x2 = x1 + 16.0 * currentZoom;
+                    double y2 = y1 + 16.0 * currentZoom;
+                    if (ChunkScanner.isOreVeinBorderChunk(cx)) {
+                        GL11.glVertex2d(x1, y1);
+                        GL11.glVertex2d(x1, y2);
+                    }
+                    if (ChunkScanner.isOreVeinBorderChunk(cz)) {
+                        GL11.glVertex2d(x1, y1);
+                        GL11.glVertex2d(x2, y1);
+                    }
+                }
             }
             GL11.glEnd();
-            GL11.glLineWidth(1.0f);
         }
 
         GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
     }
 
     private void renderWorldEntities(EntityClientPlayerMP player, double cxScreen, double cyScreen, float partialTicks) {
         if (!MapConfig.get().radarEnabled) return;
         List<RadarEntity> entities = radarManager.collectEntities(partialTicks);
+
+        // Smoothly scale & fade out mobs below 0.75x zoom so distant overviews stay crystal clean!
+        float mobAlpha = (float) Math.max(0.0, Math.min(1.0, (currentZoom - 0.40) / 0.35));
+        float mobScale = (float) Math.max(0.65, Math.min(1.05, currentZoom * 0.85));
+
         for (int i = 0; i < entities.size(); i++) {
             RadarEntity re = entities.get(i);
+            boolean isPlayer = re.category == EntityCategory.PLAYER;
+            if (!isPlayer && mobAlpha <= 0.05f) continue;
+
             double sx = worldToScreenX(re.x, cxScreen);
             double sy = worldToScreenY(re.z, cyScreen);
             if (sx < -24 || sx > this.width + 24 || sy < -24 || sy > this.height + 24) continue;
-            EntityIconRenderer.renderEntity(re, sx, sy, player.posY, 1.15f);
+
+            float scale = isPlayer ? 1.15f : mobScale;
+            float alpha = isPlayer ? 1.0f : mobAlpha;
+            EntityIconRenderer.renderEntity(re, sx, sy, player.posY, scale, alpha);
         }
     }
 
@@ -527,30 +719,130 @@ public class GuiWorldMap extends GuiScreen {
             double sy = worldToScreenY(wp.z + 0.5, cyScreen);
             if (sx < -20 || sx > this.width + 20 || sy < -20 || sy > this.height + 20) continue;
 
-            GL11.glDisable(GL11.GL_TEXTURE_2D);
-            drawQuad(sx - 7.5, sy - 7.5, sx + 7.5, sy + 7.5, 0xEE0D1117);
-            drawQuad(sx - 6.0, sy - 6.0, sx + 6.0, sy + 6.0, wp.getArgb(240));
-            GL11.glEnable(GL11.GL_TEXTURE_2D);
+            boolean hit = Math.abs(mouseX - sx) <= 7.5 && Math.abs(mouseY - sy) <= 7.5;
+            double hs = hit ? 6.8 : 5.6;
+
+            // Sleek Xaero pin badge with pointer tail (matching screenshot #7's 'D' pin!)
+            GLDraw.rect(sx - hs - 0.8, sy - hs - 0.8, sx + hs + 0.8, sy + hs + 0.8, 0xEE0A0D12);
+            GLDraw.rect(sx - hs, sy - hs, sx + hs, sy + hs, wp.getArgb(242));
 
             String init = wp.initials != null ? wp.initials : "W";
-            int iw = this.fontRendererObj.getStringWidth(init);
-            this.fontRendererObj.drawStringWithShadow(init, (int) sx - iw / 2, (int) sy - 4, 0xFFFFFFFF);
+            GLDraw.drawCenteredText(this.fontRendererObj, init, sx + 0.3, sy - 3.0, 0.78f, 0xFFFFFFFF);
 
-            if (Math.abs(mouseX - sx) <= 8 && Math.abs(mouseY - sy) <= 8) {
+            if (hit) {
                 hovered = wp;
             }
         }
         return hovered;
     }
 
+    private void renderFloatingCoords(World world, int mouseX, int mouseY) {
+        int bx = MathHelper.floor_double(screenToWorldX(mouseX));
+        int bz = MathHelper.floor_double(screenToWorldZ(mouseY));
+        int by = estimateSurfaceY(bx, bz);
+
+        String coordLine = String.format("X: %d  Y: %d  Z: %d", bx, by, bz);
+        GLDraw.drawCenteredText(this.fontRendererObj, coordLine, this.width * 0.5, 7, 0.86f, 0xFFF8FAFC);
+
+        BiomeGenBase biome = world.getBiomeGenForCoords(bx, bz);
+        String sub = biome != null ? biome.biomeName : ("Dim " + world.provider.dimensionId);
+        if (caveModeView) sub = sub + "  [Cave]";
+        GLDraw.drawCenteredText(this.fontRendererObj, sub, this.width * 0.5, 17, 0.74f, 0xFFCBD5E1);
+    }
+
+    private void renderCompassRose(double cx, double cy) {
+        // Minimalist Xaero compass cross in top-right (matching screenshot #7!)
+        GLDraw.ensureBlend();
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glLineWidth(1.0f);
+        GLDraw.setColor(0x99E2E8F0);
+        GL11.glBegin(GL11.GL_LINES);
+        GL11.glVertex2d(cx - 5, cy - 5);
+        GL11.glVertex2d(cx + 5, cy + 5);
+        GL11.glVertex2d(cx + 5, cy - 5);
+        GL11.glVertex2d(cx - 5, cy + 5);
+        GL11.glEnd();
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+
+        GLDraw.drawCenteredText(this.fontRendererObj, "N", cx, cy - 13, 0.70f, 0xFFF8FAFC);
+        GLDraw.drawCenteredText(this.fontRendererObj, "S", cx, cy + 7, 0.70f, 0xFFCBD5E1);
+        GLDraw.drawCenteredText(this.fontRendererObj, "W", cx - 10, cy - 3, 0.70f, 0xFFCBD5E1);
+        GLDraw.drawCenteredText(this.fontRendererObj, "E", cx + 10, cy - 3, 0.70f, 0xFFCBD5E1);
+    }
+
+    private String renderUiIcons(int mouseX, int mouseY) {
+        String hoveredTip = null;
+        for (int i = 0; i < uiButtons.size(); i++) {
+            IconButton b = uiButtons.get(i);
+            boolean hover = b.hit(mouseX, mouseY);
+
+            int bg = b.active ? 0xBB2563EB : (hover ? 0xBB1E293B : 0x770B0F15);
+            int border = b.active ? 0xDD60A5FA : (hover ? 0xAA94A3B8 : 0x44475569);
+
+            GLDraw.rect(b.x, b.y, b.x + b.size, b.y + b.size, bg);
+            GLDraw.rectOutline(b.x, b.y, b.x + b.size, b.y + b.size, 0.8, border);
+
+            drawVectorIcon(b.id, b.x + b.size * 0.5, b.y + b.size * 0.5, b.active || hover ? 0xFFFFFFFF : 0xFFD1D5DB);
+
+            if (hover) {
+                hoveredTip = b.tooltip;
+            }
+        }
+        return hoveredTip;
+    }
+
+    private void drawVectorIcon(int id, double cx, double cy, int color) {
+        switch (id) {
+            case BTN_SETTINGS:
+                // Minimalist crisp gear ring + spokes
+                GLDraw.ring(cx, cy, 2.5, 4.6, color, 16);
+                GLDraw.rect(cx - 1.0, cy - 6.0, cx + 1.0, cy + 6.0, color);
+                GLDraw.rect(cx - 6.0, cy - 1.0, cx + 6.0, cy + 1.0, color);
+                GLDraw.circle(cx, cy, 2.0, 0.0, 0xFF0E131A, 12);
+                break;
+            case BTN_ZOOM_IN:
+                GLDraw.rect(cx - 4.0, cy - 0.7, cx + 4.0, cy + 0.7, color);
+                GLDraw.rect(cx - 0.7, cy - 4.0, cx + 0.7, cy + 4.0, color);
+                break;
+            case BTN_ZOOM_OUT:
+                GLDraw.rect(cx - 4.0, cy - 0.7, cx + 4.0, cy + 0.7, color);
+                break;
+            case BTN_CENTER:
+                GLDraw.ring(cx, cy, 3.2, 4.4, color, 16);
+                GLDraw.circle(cx, cy, 1.3, 0.0, color, 10);
+                break;
+            case BTN_CAVE:
+                GLDraw.diamond(cx, cy, 4.5, color);
+                GLDraw.diamond(cx, cy, 2.2, 0xFF0E131A);
+                break;
+            case BTN_ORE_GRID:
+                GLDraw.rect(cx - 4.5, cy - 2.0, cx + 4.5, cy - 1.1, color);
+                GLDraw.rect(cx - 4.5, cy + 1.1, cx + 4.5, cy + 2.0, color);
+                GLDraw.rect(cx - 2.0, cy - 4.5, cx - 1.1, cy + 4.5, color);
+                GLDraw.rect(cx + 1.1, cy - 4.5, cx + 2.0, cy + 4.5, color);
+                break;
+            case BTN_CHUNK_GRID:
+                GLDraw.rectOutline(cx - 4.5, cy - 4.5, cx + 4.5, cy + 4.5, 1.0, color);
+                GLDraw.rect(cx - 4.5, cy - 0.4, cx + 4.5, cy + 0.4, color);
+                GLDraw.rect(cx - 0.4, cy - 4.5, cx + 0.4, cy + 4.5, color);
+                break;
+            case BTN_WAYPOINTS:
+                GLDraw.rect(cx - 3.5, cy - 4.5, cx + 3.5, cy + 1.5, color);
+                GLDraw.diamond(cx, cy + 2.0, 2.4, color);
+                break;
+        }
+    }
+
     private String renderLayerToolbar(int mouseX, int mouseY) {
         List<IGtnhLayerBridge.LayerButtonInfo> buttons = gtnhBridge.getLayerButtons();
         if (buttons.isEmpty()) return null;
 
+        // Sleek bottom-left vertical strip (matching Xaero screenshot #7!)
+        int btnSize = 20;
+        int gap = 3;
         int startX = 8;
-        int startY = 40;
-        int btnSize = 22;
-        int gap = 4;
+        int totalH = buttons.size() * (btnSize + gap);
+        int startY = this.height - 10 - totalH;
         String hoveredText = null;
 
         for (int i = 0; i < buttons.size(); i++) {
@@ -558,26 +850,22 @@ public class GuiWorldMap extends GuiScreen {
             int by = startY + i * (btnSize + gap);
             boolean hover = mouseX >= startX && mouseX <= startX + btnSize && mouseY >= by && mouseY <= by + btnSize;
 
-            int bg = b.active ? 0xDD1D4ED8 : (hover ? 0xDD253042 : 0xCC0E1218);
-            int border = b.active ? 0xFF60A5FA : 0x66475569;
+            int bg = b.active ? 0xCC1D4ED8 : (hover ? 0xBB1E293B : 0x770B0F15);
+            int border = b.active ? 0xEE60A5FA : (hover ? 0xAA94A3B8 : 0x44475569);
 
-            drawRect(startX - 1, by - 1, startX + btnSize + 1, by + btnSize + 1, border);
-            drawRect(startX, by, startX + btnSize, by + btnSize, bg);
+            GLDraw.rect(startX, by, startX + btnSize, by + btnSize, bg);
+            GLDraw.rectOutline(startX, by, startX + btnSize, by + btnSize, 0.8, border);
 
             if (b.icon != null) {
+                GLDraw.ensureBlend();
                 GL11.glEnable(GL11.GL_TEXTURE_2D);
-                GL11.glColor4f(1.0f, 1.0f, 1.0f, b.active ? 1.0f : 0.7f);
+                GL11.glColor4f(1.0f, 1.0f, 1.0f, b.active ? 1.0f : 0.72f);
                 Minecraft.getMinecraft().getTextureManager().bindTexture(b.icon);
-                Tessellator t = Tessellator.instance;
-                t.startDrawingQuads();
-                t.addVertexWithUV(startX + 3, by + btnSize - 3, 0, 0, 1);
-                t.addVertexWithUV(startX + btnSize - 3, by + btnSize - 3, 0, 1, 1);
-                t.addVertexWithUV(startX + btnSize - 3, by + 3, 0, 1, 0);
-                t.addVertexWithUV(startX + 3, by + 3, 0, 0, 0);
-                t.draw();
+                GLDraw.texturedQuad(startX + 3, by + 3, startX + btnSize - 3, by + btnSize - 3, 0, 0, 1, 1);
+                GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
             } else {
                 String ch = b.label.isEmpty() ? "L" : b.label.substring(0, 1).toUpperCase();
-                drawCenteredString(this.fontRendererObj, ch, startX + btnSize / 2, by + 7, 0xFFFFFFFF);
+                GLDraw.drawCenteredText(this.fontRendererObj, ch, startX + btnSize * 0.5, by + 6, 0.8f, 0xFFFFFFFF);
             }
 
             if (hover) {
@@ -589,10 +877,12 @@ public class GuiWorldMap extends GuiScreen {
 
     private boolean handleLayerToolbarClick(int mouseX, int mouseY) {
         List<IGtnhLayerBridge.LayerButtonInfo> buttons = gtnhBridge.getLayerButtons();
+        if (buttons.isEmpty()) return false;
+        int btnSize = 20;
+        int gap = 3;
         int startX = 8;
-        int startY = 40;
-        int btnSize = 22;
-        int gap = 4;
+        int totalH = buttons.size() * (btnSize + gap);
+        int startY = this.height - 10 - totalH;
 
         for (int i = 0; i < buttons.size(); i++) {
             int by = startY + i * (btnSize + gap);
@@ -604,22 +894,27 @@ public class GuiWorldMap extends GuiScreen {
         return false;
     }
 
-    private void renderTopBar(World world, int mouseX, int mouseY) {
-        drawRect(0, 0, this.width, 30, 0xD80B0F15);
-        drawRect(0, 29, this.width, 30, 0x883A7BD5);
+    private void renderBottomControls() {
+        boolean hasSearch = gtnhBridge.hasActiveSearchBar() && searchField != null;
+        int zoomY = hasSearch ? (this.height - 39) : (this.height - 14);
+        String zoomText = String.format("%.2fx", currentZoom);
+        GLDraw.drawCenteredText(this.fontRendererObj, zoomText, this.width * 0.5, zoomY, 0.76f, 0xCCECF2F8);
 
-        int bx = MathHelper.floor_double(screenToWorldX(mouseX));
-        int bz = MathHelper.floor_double(screenToWorldZ(mouseY));
-        int cx = bx >> 4;
-        int cz = bz >> 4;
-        int vx = Math.floorDiv(cx, 3);
-        int vz = Math.floorDiv(cz, 3);
-
-        String info = String.format(
-            "\u00a7bSaifun's Map\u00a7r  |  Dim %d  |  X: %d  Z: %d  (Chunk %d, %d | Vein %d, %d)  |  Zoom %.2fx",
-            world.provider.dimensionId, bx, bz, cx, cz, vx, vz, currentZoom
-        );
-        this.fontRendererObj.drawStringWithShadow(info, 10, 11, 0xFFE2E8F0);
+        if (hasSearch) {
+            GLDraw.rect(
+                searchField.xPosition - 3, searchField.yPosition - 3,
+                searchField.xPosition + searchField.width + 3, searchField.yPosition + searchField.height + 3,
+                0xBB0B0F15
+            );
+            searchField.drawTextBox();
+            GLDraw.ensureBlend();
+            if (searchField.getText().isEmpty() && !searchField.isFocused()) {
+                this.fontRendererObj.drawStringWithShadow(
+                    "Search GTNH ores / fluids...",
+                    searchField.xPosition + 4, searchField.yPosition + 4, 0xFF64748B
+                );
+            }
+        }
     }
 
     private void renderContextMenu(int mouseX, int mouseY) {
@@ -631,14 +926,14 @@ public class GuiWorldMap extends GuiScreen {
         };
         int w = 128;
         int h = items.length * 18 + 6;
-        drawRect(contextMenuX - 1, contextMenuY - 1, contextMenuX + w + 1, contextMenuY + h + 1, 0xFF3A7BD5);
-        drawRect(contextMenuX, contextMenuY, contextMenuX + w, contextMenuY + h, 0xF00E1218);
+        GLDraw.rect(contextMenuX, contextMenuY, contextMenuX + w, contextMenuY + h, 0xEE0D1117);
+        GLDraw.rectOutline(contextMenuX, contextMenuY, contextMenuX + w, contextMenuY + h, 1.0, 0xAA3A7BD5);
 
         for (int i = 0; i < items.length; i++) {
             int iy = contextMenuY + 3 + i * 18;
             boolean hover = mouseX >= contextMenuX && mouseX <= contextMenuX + w && mouseY >= iy && mouseY < iy + 18;
             if (hover) {
-                drawRect(contextMenuX + 2, iy, contextMenuX + w - 2, iy + 17, 0xCC2563EB);
+                GLDraw.rect(contextMenuX + 2, iy, contextMenuX + w - 2, iy + 17, 0xBB2563EB);
             }
             this.fontRendererObj.drawStringWithShadow(items[i], contextMenuX + 8, iy + 5, 0xFFF1F5F9);
         }
@@ -674,8 +969,9 @@ public class GuiWorldMap extends GuiScreen {
                 return true;
             case 3:
                 if (mc.thePlayer != null) {
-                    centerX = mc.thePlayer.posX;
-                    centerZ = mc.thePlayer.posZ;
+                    glideTargetX = mc.thePlayer.posX;
+                    glideTargetZ = mc.thePlayer.posZ;
+                    glidingToTarget = true;
                 }
                 return true;
             default:
@@ -711,48 +1007,34 @@ public class GuiWorldMap extends GuiScreen {
         GL11.glPushMatrix();
         GL11.glTranslated(cx, cy, 0.0);
         GL11.glRotatef(angleDeg, 0.0f, 0.0f, 1.0f);
+        GLDraw.ensureBlend();
         GL11.glDisable(GL11.GL_TEXTURE_2D);
 
-        setColor(0xEE0B0E14);
+        // Dark silhouette
+        GLDraw.setColor(0xEE0A0D12);
         GL11.glBegin(GL11.GL_TRIANGLES);
-        GL11.glVertex2d(0.0, -6.5);
-        GL11.glVertex2d(-5.0, 5.0);
-        GL11.glVertex2d(0.0, 2.5);
-        GL11.glVertex2d(0.0, -6.5);
-        GL11.glVertex2d(0.0, 2.5);
-        GL11.glVertex2d(5.0, 5.0);
+        GL11.glVertex2d(0.0, -6.0);
+        GL11.glVertex2d(-4.5, 4.5);
+        GL11.glVertex2d(0.0, 2.2);
+        GL11.glVertex2d(0.0, -6.0);
+        GL11.glVertex2d(0.0, 2.2);
+        GL11.glVertex2d(4.5, 4.5);
         GL11.glEnd();
 
-        setColor(0xFFFFFFFF);
+        // Crisp red Xaero World Map arrow (matching screenshot #7!)
+        GLDraw.setColor(0xFFEF4444);
         GL11.glBegin(GL11.GL_TRIANGLES);
-        GL11.glVertex2d(0.0, -5.0);
-        GL11.glVertex2d(-3.8, 3.8);
-        GL11.glVertex2d(0.0, 1.5);
-        GL11.glVertex2d(0.0, -5.0);
-        GL11.glVertex2d(0.0, 1.5);
-        GL11.glVertex2d(3.8, 3.8);
+        GL11.glVertex2d(0.0, -4.6);
+        GL11.glVertex2d(-3.3, 3.4);
+        GL11.glVertex2d(0.0, 1.3);
+        GL11.glVertex2d(0.0, -4.6);
+        GL11.glVertex2d(0.0, 1.3);
+        GL11.glVertex2d(3.3, 3.4);
         GL11.glEnd();
 
         GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
         GL11.glPopMatrix();
-    }
-
-    private static void drawQuad(double x1, double y1, double x2, double y2, int argb) {
-        setColor(argb);
-        GL11.glBegin(GL11.GL_QUADS);
-        GL11.glVertex2d(x1, y2);
-        GL11.glVertex2d(x2, y2);
-        GL11.glVertex2d(x2, y1);
-        GL11.glVertex2d(x1, y1);
-        GL11.glEnd();
-    }
-
-    private static void setColor(int argb) {
-        float a = ((argb >>> 24) & 0xFF) / 255.0f;
-        float r = ((argb >>> 16) & 0xFF) / 255.0f;
-        float g = ((argb >>> 8) & 0xFF) / 255.0f;
-        float b = (argb & 0xFF) / 255.0f;
-        GL11.glColor4f(r, g, b, a);
     }
 
     @Override

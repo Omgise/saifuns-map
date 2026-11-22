@@ -121,6 +121,14 @@ public class MapWorldCache {
         return null;
     }
 
+    public boolean isChunkExplored(int chunkX, int chunkZ) {
+        int rx = Math.floorDiv(chunkX, MapRegion.CHUNKS_PER_SIDE);
+        int rz = Math.floorDiv(chunkZ, MapRegion.CHUNKS_PER_SIDE);
+        MapRegion r = regions.get(packRegionKey(rx, rz));
+        if (r == null) return false;
+        return r.isChunkPopulated(chunkX & 31, chunkZ & 31);
+    }
+
     public MapRegion getOrCreateRegion(int regionX, int regionZ) {
         if (activeWorldId == null) return null;
         long key = packRegionKey(regionX, regionZ);

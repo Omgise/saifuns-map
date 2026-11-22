@@ -1,10 +1,10 @@
 package com.saifun.map.radar;
 
 import com.saifun.map.config.MapConfig;
+import com.saifun.map.render.GLDraw;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.AbstractClientPlayer;
 import net.minecraft.client.gui.FontRenderer;
-import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.renderer.entity.Render;
 import net.minecraft.client.renderer.entity.RenderManager;
 import net.minecraft.entity.Entity;
@@ -41,11 +41,12 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Modern Xaero-style entity icon renderer.
- * - Players: crisp face + hat layer directly from the player's skin.
- * - Mobs (vanilla & all GTNH mods): checks custom 2D resource-pack icons first,
- *   then extracts the exact face UV region from the entity's active Render texture.
- * - Falls back smoothly to styled category dots for items/unknown entities.
+ * Compact, crisp modern Xaero-style entity icon renderer.
+ * Supports:
+ * - Compact player & mob heads (default, ~2x tighter than v1.0 so icons never pile up),
+ * - Sleek Xaero colored diamonds (matching modern Xaero screenshot #8),
+ * - Clean colored dots,
+ * - Resource-pack / GTNH 2D entity icon overrides + dynamic Render texture head UV fallback.
  */
 public final class EntityIconRenderer {
 
@@ -118,35 +119,54 @@ public final class EntityIconRenderer {
         double playerY,
         float scaleMultiplier
     ) {
+        renderEntity(re, screenX, screenY, playerY, scaleMultiplier, 1.0f);
+    }
+
+    public static void renderEntity(
+        RadarEntity re,
+        double screenX,
+        double screenY,
+        double playerY,
+        float scaleMultiplier,
+        float alphaMultiplier
+    ) {
+        if (alphaMultiplier <= 0.05f) return;
+
         MapConfig cfg = MapConfig.get();
         double dy = re.y - playerY;
-        float alpha = computeVerticalAlpha(dy, re.category);
+        float alpha = computeVerticalAlpha(dy, re.category) * alphaMultiplier;
 
-        float baseSize = 8.0f * re.category.defaultScale * cfg.radarIconScale * scaleMultiplier;
-        float half = baseSize * 0.5f;
-
-        boolean drawHead = cfg.radarIconStyle == MapConfig.RadarIconStyle.HEADS
-            && re.category != EntityCategory.ITEM;
+        // Compact Xaero proportions (~half of v1.0): clean, crisp, non-crowding!
+        float basePx = re.category == EntityCategory.PLAYER ? 6.8f : 4.8f;
+        float size = basePx * re.category.defaultScale * cfg.radarIconScale * scaleMultiplier;
+        float half = size * 0.5f;
 
         GL11.glPushMatrix();
         GL11.glTranslated(screenX, screenY, 0.0);
+        GLDraw.ensureBlend();
 
-        if (drawHead && re.category == EntityCategory.PLAYER) {
-            renderPlayerHead(re, half, alpha);
-        } else if (drawHead && re.entity instanceof EntityLivingBase) {
-            if (!renderMobHead(re, half, alpha)) {
+        if (re.category == EntityCategory.PLAYER) {
+            // Players always render crisp skin heads regardless of mob dot/diamond setting
+            if (cfg.radarIconStyle == MapConfig.RadarIconStyle.DOTS) {
                 renderDot(re.category.color, half * 0.72f, alpha);
+            } else {
+                renderPlayerHead(re, half, alpha);
             }
+        } else if (re.category == EntityCategory.ITEM || cfg.radarIconStyle == MapConfig.RadarIconStyle.DOTS) {
+            renderDot(re.category.color, Math.max(1.8f, half * 0.65f), alpha);
+        } else if (cfg.radarIconStyle == MapConfig.RadarIconStyle.DIAMONDS) {
+            renderDiamond(re.category.color, Math.max(2.2f, half * 0.85f), alpha);
         } else {
-            renderDot(re.category.color, half * 0.72f, alpha);
+            // HEADS (default): compact crisp mob heads
+            if (!renderMobHead(re, half, alpha)) {
+                renderDiamond(re.category.color, Math.max(2.1f, half * 0.80f), alpha);
+            }
         }
 
-        // Height difference caret (▲ above, ▼ below) like modern Xaero
-        if (cfg.showHeightIndicator && Math.abs(dy) >= 4.0) {
+        if (cfg.showHeightIndicator && Math.abs(dy) >= 5.0 && alpha > 0.35f) {
             renderHeightIndicator(dy > 0, half, alpha);
         }
 
-        // Player username label
         if (re.category == EntityCategory.PLAYER && cfg.showPlayerNames && re.name != null) {
             renderPlayerName(re.name, half, alpha);
         }
@@ -156,12 +176,12 @@ public final class EntityIconRenderer {
 
     private static float computeVerticalAlpha(double dy, EntityCategory cat) {
         if (cat == EntityCategory.PLAYER || cat == EntityCategory.BOSS) {
-            return Math.abs(dy) > 24.0 ? 0.85f : 1.0f;
+            return Math.abs(dy) > 28.0 ? 0.88f : 1.0f;
         }
         double abs = Math.abs(dy);
         if (abs <= 8.0) return 1.0f;
-        if (abs >= 32.0) return 0.45f;
-        return (float) (1.0 - ((abs - 8.0) / 24.0) * 0.55);
+        if (abs >= 28.0) return 0.42f;
+        return (float) (1.0 - ((abs - 8.0) / 20.0) * 0.58);
     }
 
     private static void renderPlayerHead(RadarEntity re, float half, float alpha) {
@@ -176,53 +196,54 @@ public final class EntityIconRenderer {
             skin = AbstractClientPlayer.locationStevePng;
         }
 
-        // Crisp dark + cyan border frame
-        drawRect(-half - 1.2f, -half - 1.2f, half + 1.2f, half + 1.2f, withAlpha(0x000D1117, alpha * 0.92f));
-        drawRect(-half - 0.6f, -half - 0.6f, half + 0.6f, half + 0.6f, withAlpha(re.category.color, alpha * 0.85f));
+        GLDraw.rect(-half - 0.9, -half - 0.9, half + 0.9, half + 0.9, GLDraw.withAlpha(0x0A0D12, alpha * 0.90f));
+        GLDraw.rect(-half - 0.45, -half - 0.45, half + 0.45, half + 0.45, GLDraw.withAlpha(re.category.color, alpha * 0.85f));
 
+        GLDraw.ensureBlend();
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glColor4f(1.0f, 1.0f, 1.0f, alpha);
         Minecraft.getMinecraft().getTextureManager().bindTexture(skin);
-        drawTexturedQuad(-half, -half, half, half, UV_PLAYER_32.u1, UV_PLAYER_32.v1, UV_PLAYER_32.u2, UV_PLAYER_32.v2);
-        // Hat overlay layer
-        drawTexturedQuad(
-            -half - 0.35f, -half - 0.35f, half + 0.35f, half + 0.35f,
+        GLDraw.texturedQuad(-half, -half, half, half, UV_PLAYER_32.u1, UV_PLAYER_32.v1, UV_PLAYER_32.u2, UV_PLAYER_32.v2);
+        GLDraw.texturedQuad(
+            -half - 0.25, -half - 0.25, half + 0.25, half + 0.25,
             UV_PLAYER_32.ou1, UV_PLAYER_32.ov1, UV_PLAYER_32.ou2, UV_PLAYER_32.ov2
         );
+        GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
     }
 
     private static boolean renderMobHead(RadarEntity re, float half, float alpha) {
         Entity entity = re.entity;
-        if (entity == null) return false;
+        if (!(entity instanceof EntityLivingBase)) return false;
 
-        // 1. Check custom resource-pack / GTNH 2D icon overrides first
         ResourceLocation custom = findCustomIcon(entity);
         if (custom != null) {
-            drawRect(-half - 0.9f, -half - 0.9f, half + 0.9f, half + 0.9f, withAlpha(0x000D1117, alpha * 0.80f));
+            GLDraw.rect(-half - 0.6, -half - 0.6, half + 0.6, half + 0.6, GLDraw.withAlpha(0x0A0D12, alpha * 0.85f));
+            GLDraw.ensureBlend();
             GL11.glEnable(GL11.GL_TEXTURE_2D);
             GL11.glColor4f(1.0f, 1.0f, 1.0f, alpha);
             Minecraft.getMinecraft().getTextureManager().bindTexture(custom);
-            drawTexturedQuad(-half, -half, half, half, UV_FULL.u1, UV_FULL.v1, UV_FULL.u2, UV_FULL.v2);
+            GLDraw.texturedQuad(-half, -half, half, half, UV_FULL.u1, UV_FULL.v1, UV_FULL.u2, UV_FULL.v2);
+            GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
             return true;
         }
 
-        // 2. Dynamically sample head UV from the entity's registered Render texture
         ResourceLocation tex = resolveEntityTexture(entity);
         if (tex == null) return false;
 
         HeadUV uv = resolveMobHeadUV(entity);
 
-        // Subtle category rim around head icon
-        drawRect(-half - 1.0f, -half - 1.0f, half + 1.0f, half + 1.0f, withAlpha(0x000D1117, alpha * 0.85f));
-        drawRect(-half - 0.5f, -half - 0.5f, half + 0.5f, half + 0.5f, withAlpha(re.category.color, alpha * 0.70f));
+        // Crisp hairline dark frame (clean & minimal, no thick boxes!)
+        GLDraw.rect(-half - 0.65, -half - 0.65, half + 0.65, half + 0.65, GLDraw.withAlpha(0x0A0D12, alpha * 0.88f));
 
+        GLDraw.ensureBlend();
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glColor4f(1.0f, 1.0f, 1.0f, alpha);
         Minecraft.getMinecraft().getTextureManager().bindTexture(tex);
-        drawTexturedQuad(-half, -half, half, half, uv.u1, uv.v1, uv.u2, uv.v2);
+        GLDraw.texturedQuad(-half, -half, half, half, uv.u1, uv.v1, uv.u2, uv.v2);
         if (uv.hasOverlay) {
-            drawTexturedQuad(-half - 0.25f, -half - 0.25f, half + 0.25f, half + 0.25f, uv.ou1, uv.ov1, uv.ou2, uv.ov2);
+            GLDraw.texturedQuad(-half - 0.15, -half - 0.15, half + 0.15, half + 0.15, uv.ou1, uv.ov1, uv.ou2, uv.ov2);
         }
+        GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
         return true;
     }
 
@@ -251,9 +272,7 @@ public final class EntityIconRenderer {
                     CUSTOM_ICON_CACHE.put(regName, cand);
                     return cand;
                 }
-            } catch (Exception ignored) {
-                // Resource not present in active packs
-            }
+            } catch (Exception ignored) {}
         }
 
         CUSTOM_ICON_CACHE.put(regName, MISSING_ICON);
@@ -316,96 +335,45 @@ public final class EntityIconRenderer {
         if (entity instanceof EntityBat) return UV_BAT;
         if (entity instanceof EntityWither) return UV_WITHER;
         if (entity instanceof EntityDragon) return UV_DRAGON;
-        // Standard Minecraft humanoid/mob head UV fits the vast majority of modded GTNH mobs too
         return UV_BIPED_32;
     }
 
+    private static void renderDiamond(int argb, float radius, float alpha) {
+        GLDraw.diamond(0, 0, radius + 0.8, GLDraw.withAlpha(0x0A0D12, alpha * 0.92f));
+        GLDraw.diamond(0, 0, radius, GLDraw.withAlpha(argb, alpha));
+    }
+
     private static void renderDot(int argb, float radius, float alpha) {
-        GL11.glDisable(GL11.GL_TEXTURE_2D);
-        // Outer dark ring
-        drawCircle(0, 0, radius + 0.9f, withAlpha(0x000D1117, alpha * 0.90f), 14);
-        // Inner colored dot
-        drawCircle(0, 0, radius, withAlpha(argb, alpha), 14);
-        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GLDraw.circle(0, 0, radius + 0.75, 0.0, GLDraw.withAlpha(0x0A0D12, alpha * 0.90f), 12);
+        GLDraw.circle(0, 0, radius, 0.0, GLDraw.withAlpha(argb, alpha), 12);
     }
 
     private static void renderHeightIndicator(boolean above, float half, float alpha) {
+        GLDraw.ensureBlend();
         GL11.glDisable(GL11.GL_TEXTURE_2D);
-        int fill = above ? withAlpha(0x00FFFFFF, alpha * 0.95f) : withAlpha(0x00B0BEC5, alpha * 0.90f);
-        float tipY = above ? (-half - 3.6f) : (half + 3.6f);
-        float baseY = above ? (-half - 1.2f) : (half + 1.2f);
-        float w = 2.4f;
+        int fill = above ? GLDraw.withAlpha(0xFFFFFF, alpha * 0.90f) : GLDraw.withAlpha(0x94A3B8, alpha * 0.85f);
+        float tipY = above ? (-half - 2.6f) : (half + 2.6f);
+        float baseY = above ? (-half - 0.9f) : (half + 0.9f);
+        float w = 1.6f;
 
-        setColor(fill);
+        GLDraw.setColor(fill);
         GL11.glBegin(GL11.GL_TRIANGLES);
         GL11.glVertex2f(0.0f, tipY);
         GL11.glVertex2f(-w, baseY);
         GL11.glVertex2f(w, baseY);
         GL11.glEnd();
         GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
     }
 
     private static void renderPlayerName(String name, float half, float alpha) {
         FontRenderer fr = Minecraft.getMinecraft().fontRenderer;
         if (fr == null) return;
-        float textScale = 0.65f;
-        GL11.glPushMatrix();
-        GL11.glTranslatef(0.0f, half + 2.5f, 0.0f);
-        GL11.glScalef(textScale, textScale, 1.0f);
+        float textScale = 0.62f;
         int width = fr.getStringWidth(name);
-        int pad = 2;
-        drawRect(-width * 0.5f - pad, -1.0f, width * 0.5f + pad, fr.FONT_HEIGHT + 1.0f, withAlpha(0x000B0E14, alpha * 0.72f));
-        GL11.glEnable(GL11.GL_TEXTURE_2D);
-        int color = withAlpha(0x00E3F2FD, Math.max(0.25f, alpha));
-        fr.drawStringWithShadow(name, -width / 2, 0, color);
-        GL11.glPopMatrix();
-    }
-
-    private static void drawCircle(float cx, float cy, float r, int argb, int segments) {
-        setColor(argb);
-        GL11.glBegin(GL11.GL_TRIANGLE_FAN);
-        GL11.glVertex2f(cx, cy);
-        for (int i = 0; i <= segments; i++) {
-            double ang = (Math.PI * 2.0 * i) / segments;
-            GL11.glVertex2f((float) (cx + Math.cos(ang) * r), (float) (cy + Math.sin(ang) * r));
-        }
-        GL11.glEnd();
-    }
-
-    private static void drawRect(float x1, float y1, float x2, float y2, int argb) {
-        GL11.glDisable(GL11.GL_TEXTURE_2D);
-        setColor(argb);
-        GL11.glBegin(GL11.GL_QUADS);
-        GL11.glVertex2f(x1, y2);
-        GL11.glVertex2f(x2, y2);
-        GL11.glVertex2f(x2, y1);
-        GL11.glVertex2f(x1, y1);
-        GL11.glEnd();
-    }
-
-    private static void drawTexturedQuad(
-        float x1, float y1, float x2, float y2,
-        float u1, float v1, float u2, float v2
-    ) {
-        Tessellator t = Tessellator.instance;
-        t.startDrawingQuads();
-        t.addVertexWithUV(x1, y2, 0.0, u1, v2);
-        t.addVertexWithUV(x2, y2, 0.0, u2, v2);
-        t.addVertexWithUV(x2, y1, 0.0, u2, v1);
-        t.addVertexWithUV(x1, y1, 0.0, u1, v1);
-        t.draw();
-    }
-
-    private static void setColor(int argb) {
-        float a = ((argb >>> 24) & 0xFF) / 255.0f;
-        float r = ((argb >>> 16) & 0xFF) / 255.0f;
-        float g = ((argb >>> 8) & 0xFF) / 255.0f;
-        float b = (argb & 0xFF) / 255.0f;
-        GL11.glColor4f(r, g, b, a);
-    }
-
-    private static int withAlpha(int rgb, float alpha) {
-        int a = Math.max(0, Math.min(255, (int) (alpha * 255.0f)));
-        return (a << 24) | (rgb & 0x00FFFFFF);
+        double bw = (width * textScale) * 0.5 + 2.0;
+        double ty = half + 2.2;
+        GLDraw.rect(-bw, ty - 0.8, bw, ty + fr.FONT_HEIGHT * textScale + 0.8, GLDraw.withAlpha(0x0A0D12, alpha * 0.72f));
+        GLDraw.drawCenteredText(fr, name, 0.0, ty, textScale, GLDraw.withAlpha(0xE0F2FE, Math.max(0.25f, alpha)));
     }
 }

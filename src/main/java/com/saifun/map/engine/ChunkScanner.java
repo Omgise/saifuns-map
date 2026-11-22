@@ -207,6 +207,8 @@ public class ChunkScanner {
                 int solidRgb = 0;
                 int solidY = 0;
                 int light = 15;
+                int flatAccentRgb = 0;
+                boolean snowCovered = false;
 
                 for (; y >= 0; y--) {
                     Block block = chunk.getBlock(lx, y, lz);
@@ -214,6 +216,14 @@ public class ChunkScanner {
                         continue;
                     }
                     int meta = chunk.getBlockMetadata(lx, y, lz);
+                    if (BlockColorResolver.isFlatAccentBlock(block)) {
+                        if (block == Blocks.snow_layer) {
+                            snowCovered = true;
+                        } else if (flatAccentRgb == 0) {
+                            flatAccentRgb = BlockColorResolver.getBlockColor(world, block, meta, wx, y, wz, biome);
+                        }
+                        continue;
+                    }
                     if (BlockColorResolver.isWaterLike(block)) {
                         if (wDepth == 0) {
                             wColor = BlockColorResolver.getBlockColor(world, block, meta, wx, y, wz, biome);
@@ -232,6 +242,11 @@ public class ChunkScanner {
                 if (solidRgb == 0 && wDepth > 0) {
                     solidRgb = wColor;
                     solidY = 0;
+                } else if (snowCovered && wDepth == 0) {
+                    solidRgb = 0xEDF4FA;
+                } else if (flatAccentRgb != 0 && wDepth == 0) {
+                    // Subtle flower/flora fleck on top of smooth grass (like modern Xaero!)
+                    solidRgb = BlockColorResolver.blendColor(solidRgb, flatAccentRgb, 0.58f);
                 }
 
                 snap.surfaceRgb[idx] = solidRgb;

@@ -11,6 +11,7 @@ public final class MapKeybinds {
     public static KeyBinding KEY_SETTINGS;
     public static KeyBinding KEY_WORLD_MAP;
     public static KeyBinding KEY_TOGGLE_MINIMAP;
+    public static KeyBinding KEY_ENLARGE_MINIMAP;
     public static KeyBinding KEY_ZOOM_IN;
     public static KeyBinding KEY_ZOOM_OUT;
     public static KeyBinding KEY_TOGGLE_CAVE_MODE;
@@ -26,6 +27,7 @@ public final class MapKeybinds {
         KEY_SETTINGS = reg("key.saifunsmap.settings", Keyboard.KEY_Y);
         KEY_WORLD_MAP = reg("key.saifunsmap.worldmap", Keyboard.KEY_M);
         KEY_TOGGLE_MINIMAP = reg("key.saifunsmap.toggle_minimap", Keyboard.KEY_H);
+        KEY_ENLARGE_MINIMAP = reg("key.saifunsmap.enlarge_minimap", Keyboard.KEY_Z);
         KEY_ZOOM_IN = reg("key.saifunsmap.zoom_in", Keyboard.KEY_EQUALS);
         KEY_ZOOM_OUT = reg("key.saifunsmap.zoom_out", Keyboard.KEY_MINUS);
         KEY_TOGGLE_CAVE_MODE = reg("key.saifunsmap.toggle_cave", Keyboard.KEY_NONE);

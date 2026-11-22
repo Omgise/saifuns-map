@@ -131,6 +131,8 @@ public class ClientEventHandler {
         } else if (MapKeybinds.KEY_TOGGLE_MINIMAP.isPressed()) {
             cfg.minimapEnabled = !cfg.minimapEnabled;
             MapConfig.save();
+        } else if (MapKeybinds.KEY_ENLARGE_MINIMAP.isPressed()) {
+            minimapRenderer.toggleEnlarged();
         } else if (MapKeybinds.KEY_ZOOM_IN.isPressed()) {
             cfg.minimapZoom = Math.min(8.0f, cfg.minimapZoom * 1.25f);
             MapConfig.save();

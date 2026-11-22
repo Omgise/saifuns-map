@@ -5,6 +5,7 @@ import com.saifun.map.config.MapConfig;
 import com.saifun.map.engine.ChunkScanner;
 import com.saifun.map.engine.MapRegion;
 import com.saifun.map.engine.MapWorldCache;
+import com.saifun.map.radar.EntityCategory;
 import com.saifun.map.radar.EntityIconRenderer;
 import com.saifun.map.radar.EntityRadarManager;
 import com.saifun.map.radar.RadarEntity;
@@ -23,9 +24,11 @@ import org.lwjgl.opengl.GL11;
 import java.util.List;
 
 /**
- * Modern Xaero-style Minimap HUD renderer.
- * Features circular & square framing (Angelica-safe depth mask), smooth zoom/rotation,
- * GTNH 3x3 ore vein grid, chunk grid, slime chunks, unrestricted entity radar, and info bar.
+ * Modern Xaero-style Minimalist Minimap HUD renderer (v2.0).
+ * - Crisp 3-layer hairline Xaero frame (or Circle / Minimal / None).
+ * - Smooth deltaTime-based zoom and Enlarge Minimap (Z) animations.
+ * - Minimalist inside-rim compass letters and bare shadowed coordinates underneath.
+ * - Explored-only overlays, compact entity heads/diamonds, waypoints, and GTNH Navigator layers.
  */
 public class MinimapRenderer {
 
@@ -38,7 +41,10 @@ public class MinimapRenderer {
     private final WaypointManager waypointManager;
     private final IGtnhLayerBridge gtnhBridge;
 
-    private float smoothZoom = 2.0f;
+    private float smoothZoom = 1.6f;
+    private float smoothSize = 144.0f;
+    private boolean enlarged = false;
+    private long lastFrameNanos = 0L;
 
     public MinimapRenderer(
         MapWorldCache worldCache,
@@ -54,6 +60,14 @@ public class MinimapRenderer {
         this.gtnhBridge = gtnhBridge;
     }
 
+    public void toggleEnlarged() {
+        this.enlarged = !this.enlarged;
+    }
+
+    public boolean isEnlarged() {
+        return enlarged;
+    }
+
     public void render(float partialTicks) {
         MapConfig cfg = MapConfig.get();
         if (!cfg.minimapEnabled) return;
@@ -66,21 +80,29 @@ public class MinimapRenderer {
 
         worldCache.onRenderTick();
 
-        // Smooth zoom interpolation
-        smoothZoom += (cfg.minimapZoom - smoothZoom) * 0.25f;
-        if (Math.abs(smoothZoom - cfg.minimapZoom) < 0.005f) {
-            smoothZoom = cfg.minimapZoom;
-        }
+        // Frame-rate independent smooth animations
+        long now = System.nanoTime();
+        double dt = lastFrameNanos == 0L ? 0.016 : Math.min(0.1, (now - lastFrameNanos) * 1e-9);
+        lastFrameNanos = now;
+        float ease = (float) (1.0 - Math.exp(-dt * 14.0));
+
+        float targetZoom = enlarged ? Math.max(0.75f, cfg.minimapZoom * 0.72f) : cfg.minimapZoom;
+        smoothZoom += (targetZoom - smoothZoom) * ease;
+        if (Math.abs(smoothZoom - targetZoom) < 0.002f) smoothZoom = targetZoom;
 
         ScaledResolution sr = new ScaledResolution(mc, mc.displayWidth, mc.displayHeight);
         int sw = sr.getScaledWidth();
         int sh = sr.getScaledHeight();
         int scaleFactor = sr.getScaleFactor();
 
-        int size = cfg.minimapSize;
+        float targetSize = enlarged ? Math.min(Math.min(sw, sh) - 48, cfg.minimapSize * 1.85f) : cfg.minimapSize;
+        if (smoothSize <= 1.0f) smoothSize = targetSize;
+        smoothSize += (targetSize - smoothSize) * ease;
+        if (Math.abs(smoothSize - targetSize) < 0.25f) smoothSize = targetSize;
+
+        int size = Math.round(smoothSize);
         int half = size / 2;
 
-        // Compute top-left position based on selected corner
         int left;
         int top;
         boolean bottomAligned = cfg.minimapCorner == MapConfig.Corner.BOTTOM_LEFT
@@ -93,11 +115,11 @@ public class MinimapRenderer {
                 break;
             case BOTTOM_LEFT:
                 left = cfg.offsetX;
-                top = sh - size - cfg.offsetY - (cfg.showInfoBar ? 34 : 0);
+                top = sh - size - cfg.offsetY - (cfg.showInfoBar ? 20 : 0);
                 break;
             case BOTTOM_RIGHT:
                 left = sw - size - cfg.offsetX;
-                top = sh - size - cfg.offsetY - (cfg.showInfoBar ? 34 : 0);
+                top = sh - size - cfg.offsetY - (cfg.showInfoBar ? 20 : 0);
                 break;
             case TOP_RIGHT:
             default:
@@ -114,7 +136,6 @@ public class MinimapRenderer {
         double playerZ = player.lastTickPosZ + (player.posZ - player.lastTickPosZ) * partialTicks;
         float playerYaw = player.prevRotationYaw + (player.rotationYaw - player.prevRotationYaw) * partialTicks;
 
-        // Rotation angle in degrees: North-lock = 0, otherwise player facing is UP
         float mapRotationDeg = cfg.lockNorth ? 0.0f : (180.0f - playerYaw);
         double blocksPerPixel = 1.0 / smoothZoom;
         double pixelsPerBlock = smoothZoom;
@@ -123,11 +144,9 @@ public class MinimapRenderer {
         try (GLStateGuard ignored = new GLStateGuard()) {
             GL11.glDisable(GL11.GL_LIGHTING);
             GL11.glDisable(GL11.GL_CULL_FACE);
-            GL11.glEnable(GL11.GL_BLEND);
-            GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+            GLDraw.ensureBlend();
             GL11.glEnable(GL11.GL_ALPHA_TEST);
 
-            // Compute framebuffer scissor rect around minimap interior
             int scX = Math.max(0, left * scaleFactor);
             int scY = Math.max(0, mc.displayHeight - (top + size) * scaleFactor);
             int scW = Math.max(1, size * scaleFactor);
@@ -137,15 +156,13 @@ public class MinimapRenderer {
             GL11.glScissor(scX, scY, scW, scH);
 
             if (cfg.circularMinimap) {
-                // Angelica-safe circular clip using local depth mask inside scissor box (0 stencil bits needed)
                 GL11.glEnable(GL11.GL_DEPTH_TEST);
                 GL11.glDepthMask(true);
                 GL11.glClear(GL11.GL_DEPTH_BUFFER_BIT);
                 GL11.glColorMask(false, false, false, false);
                 GL11.glDepthFunc(GL11.GL_ALWAYS);
-                GL11.glDisable(GL11.GL_TEXTURE_2D);
 
-                drawFilledCircle(centerX, centerY, half - 1.5, MASK_Z, 0xFFFFFFFF);
+                GLDraw.circle(centerX, centerY, half - 1.5, MASK_Z, 0xFFFFFFFF, CIRCLE_SEGMENTS);
 
                 GL11.glColorMask(true, true, true, true);
                 GL11.glDepthMask(false);
@@ -154,12 +171,11 @@ public class MinimapRenderer {
                 GL11.glDisable(GL11.GL_DEPTH_TEST);
             }
 
-            // 1. Dark map backdrop
-            GL11.glDisable(GL11.GL_TEXTURE_2D);
-            int bgAlpha = (int) (cfg.minimapOpacity * 235.0f);
-            drawRect(left, top, left + size, top + size, MASK_Z, (bgAlpha << 24) | 0x0E1218);
+            // 1. Deep subtle backdrop
+            int bgAlpha = (int) (cfg.minimapOpacity * 228.0f);
+            GLDraw.rectZ(left, top, left + size, top + size, MASK_Z, (bgAlpha << 24) | 0x0B0F15);
 
-            // 2. Rotated world space: Regions + Overlays
+            // 2. Rotated world space: Regions + Explored-only Overlays + GTNH Navigator
             GL11.glPushMatrix();
             GL11.glTranslated(centerX, centerY, 0.0);
             GL11.glRotatef(mapRotationDeg, 0.0f, 0.0f, 1.0f);
@@ -168,7 +184,6 @@ public class MinimapRenderer {
             renderRegions(playerX, playerZ, worldRadiusBlocks, pixelsPerBlock, caveMode, cfg.minimapOpacity);
             renderOverlays(world, playerX, playerZ, worldRadiusBlocks, pixelsPerBlock);
 
-            // 2b. GTNH Navigator layers (VisualProspecting Ore Veins, Fluids, Nodes, ServerUtilities Claims)
             if (gtnhBridge != null && cfg.showNavigatorOnMinimap) {
                 GL11.glPushMatrix();
                 GL11.glTranslated(0.0, 0.0, MASK_Z);
@@ -178,29 +193,30 @@ public class MinimapRenderer {
 
             GL11.glPopMatrix();
 
-            // End depth/scissor mask before crisp border, compass, entities, waypoints & info bar
+            // End depth/scissor mask
             GL11.glDisable(GL11.GL_DEPTH_TEST);
             GL11.glDepthMask(true);
             GL11.glDepthFunc(GL11.GL_LEQUAL);
             GL11.glDisable(GL11.GL_SCISSOR_TEST);
+            GLDraw.ensureBlend();
 
-            // 3. Entity Radar (clipped cleanly to map radius so icons stay crisp & un-rotated!)
+            // 3. Entity Radar (compact crisp heads/diamonds)
             renderEntities(playerX, playerY, playerZ, centerX, centerY, half, mapRotationDeg, pixelsPerBlock, partialTicks);
 
-            // 3b. Waypoints on Minimap (clamped to rim when outside radius, like Xaero!)
+            // 4. Waypoints on Minimap (clamped neatly inside rim)
             renderMinimapWaypoints(world.provider.dimensionId, playerX, playerZ, centerX, centerY, half, mapRotationDeg, pixelsPerBlock);
 
-            // 4. Center Player Chevron Arrow
+            // 5. Crisp minimalist center player marker
             float arrowAngle = cfg.lockNorth ? (playerYaw - 180.0f) : 0.0f;
-            renderPlayerArrow(centerX, centerY, arrowAngle);
+            renderPlayerMarker(centerX, centerY, arrowAngle, cfg.lockNorth);
 
-            // 5. Crisp Modern Xaero Frame & Compass
+            // 6. Clean thin Xaero Frame & inside-rim minimalist Compass
             renderFrame(left, top, size, centerX, centerY, half, cfg);
             if (cfg.showCompass) {
                 renderCompass(centerX, centerY, half, mapRotationDeg, cfg.circularMinimap);
             }
 
-            // 6. Info Bar (coordinates, biome, cave badge, time & light)
+            // 7. Minimalist shadowed coordinates underneath (matching modern Xaero screenshot #8!)
             if (cfg.showInfoBar) {
                 renderInfoBar(world, player, left, top, size, bottomAligned, caveMode);
             }
@@ -220,7 +236,8 @@ public class MinimapRenderer {
         int minRz = Math.floorDiv(MathHelper.floor_double(playerZ - worldRadius), MapRegion.SIZE);
         int maxRz = Math.floorDiv(MathHelper.floor_double(playerZ + worldRadius), MapRegion.SIZE);
 
-        boolean linearFilter = pixelsPerBlock < 1.2;
+        boolean linearFilter = pixelsPerBlock < 1.35;
+        GLDraw.ensureBlend();
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glColor4f(1.0f, 1.0f, 1.0f, opacity);
 
@@ -247,6 +264,7 @@ public class MinimapRenderer {
                 t.draw();
             }
         }
+        GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
     }
 
     private void renderOverlays(
@@ -264,75 +282,76 @@ public class MinimapRenderer {
         int minCz = Math.floorDiv(MathHelper.floor_double(playerZ - worldRadius), 16);
         int maxCz = Math.floorDiv(MathHelper.floor_double(playerZ + worldRadius), 16);
 
+        GLDraw.ensureBlend();
         GL11.glDisable(GL11.GL_TEXTURE_2D);
 
-        // Filled overlays: Slime Chunks & GTNH Ore Vein Center Chunks
+        // Filled tints ONLY on explored chunks
         if (cfg.showSlimeChunks || (cfg.showOreVeinGrid && cfg.highlightOreVeinCenter)) {
             for (int cz = minCz; cz <= maxCz; cz++) {
                 for (int cx = minCx; cx <= maxCx; cx++) {
+                    if (!worldCache.isChunkExplored(cx, cz)) continue;
                     double sx1 = ((cx << 4) - playerX) * pixelsPerBlock;
                     double sy1 = ((cz << 4) - playerZ) * pixelsPerBlock;
                     double sx2 = sx1 + 16.0 * pixelsPerBlock;
                     double sy2 = sy1 + 16.0 * pixelsPerBlock;
 
                     if (cfg.showSlimeChunks && ChunkScanner.isSlimeChunk(world, cx, cz)) {
-                        drawRect(sx1, sy1, sx2, sy2, MASK_Z, cfg.slimeChunkColor);
+                        GLDraw.rectZ(sx1, sy1, sx2, sy2, MASK_Z, cfg.slimeChunkColor);
                     }
                     if (cfg.showOreVeinGrid && cfg.highlightOreVeinCenter && ChunkScanner.isOreVeinCenterChunk(cx, cz)) {
-                        drawRect(sx1, sy1, sx2, sy2, MASK_Z, cfg.oreVeinCenterColor);
+                        GLDraw.rectZ(sx1, sy1, sx2, sy2, MASK_Z, cfg.oreVeinCenterColor);
                     }
                 }
             }
+            GL11.glDisable(GL11.GL_TEXTURE_2D);
         }
 
-        // Regular Chunk Grid (16x16)
         if (cfg.showChunkGrid) {
             GL11.glLineWidth(1.0f);
-            setColor(cfg.chunkGridColor);
+            GLDraw.setColor(cfg.chunkGridColor);
             GL11.glBegin(GL11.GL_LINES);
-            double minSy = ((minCz << 4) - playerZ) * pixelsPerBlock;
-            double maxSy = (((maxCz + 1) << 4) - playerZ) * pixelsPerBlock;
-            for (int cx = minCx; cx <= maxCx + 1; cx++) {
-                double sx = ((cx << 4) - playerX) * pixelsPerBlock;
-                GL11.glVertex3d(sx, minSy, MASK_Z);
-                GL11.glVertex3d(sx, maxSy, MASK_Z);
-            }
-            double minSx = ((minCx << 4) - playerX) * pixelsPerBlock;
-            double maxSx = (((maxCx + 1) << 4) - playerX) * pixelsPerBlock;
-            for (int cz = minCz; cz <= maxCz + 1; cz++) {
-                double sy = ((cz << 4) - playerZ) * pixelsPerBlock;
-                GL11.glVertex3d(minSx, sy, MASK_Z);
-                GL11.glVertex3d(maxSx, sy, MASK_Z);
+            for (int cz = minCz; cz <= maxCz; cz++) {
+                for (int cx = minCx; cx <= maxCx; cx++) {
+                    if (!worldCache.isChunkExplored(cx, cz)) continue;
+                    double x1 = ((cx << 4) - playerX) * pixelsPerBlock;
+                    double y1 = ((cz << 4) - playerZ) * pixelsPerBlock;
+                    double x2 = x1 + 16.0 * pixelsPerBlock;
+                    double y2 = y1 + 16.0 * pixelsPerBlock;
+                    GL11.glVertex3d(x1, y1, MASK_Z);
+                    GL11.glVertex3d(x2, y1, MASK_Z);
+                    GL11.glVertex3d(x1, y1, MASK_Z);
+                    GL11.glVertex3d(x1, y2, MASK_Z);
+                }
             }
             GL11.glEnd();
         }
 
-        // GTNH 3x3 Chunk Ore Vein Grid (48x48 blocks, aligned to chunkCoord % 3 == 0)
         if (cfg.showOreVeinGrid) {
-            GL11.glLineWidth(1.5f);
-            setColor(cfg.oreVeinGridColor);
+            GL11.glLineWidth(1.0f);
+            GLDraw.setColor(cfg.oreVeinGridColor);
             GL11.glBegin(GL11.GL_LINES);
-            double minSy = ((minCz << 4) - playerZ) * pixelsPerBlock;
-            double maxSy = (((maxCz + 1) << 4) - playerZ) * pixelsPerBlock;
-            for (int cx = minCx; cx <= maxCx + 1; cx++) {
-                if (!ChunkScanner.isOreVeinBorderChunk(cx)) continue;
-                double sx = ((cx << 4) - playerX) * pixelsPerBlock;
-                GL11.glVertex3d(sx, minSy, MASK_Z);
-                GL11.glVertex3d(sx, maxSy, MASK_Z);
-            }
-            double minSx = ((minCx << 4) - playerX) * pixelsPerBlock;
-            double maxSx = (((maxCx + 1) << 4) - playerX) * pixelsPerBlock;
-            for (int cz = minCz; cz <= maxCz + 1; cz++) {
-                if (!ChunkScanner.isOreVeinBorderChunk(cz)) continue;
-                double sy = ((cz << 4) - playerZ) * pixelsPerBlock;
-                GL11.glVertex3d(minSx, sy, MASK_Z);
-                GL11.glVertex3d(maxSx, sy, MASK_Z);
+            for (int cz = minCz; cz <= maxCz; cz++) {
+                for (int cx = minCx; cx <= maxCx; cx++) {
+                    if (!worldCache.isChunkExplored(cx, cz)) continue;
+                    double x1 = ((cx << 4) - playerX) * pixelsPerBlock;
+                    double y1 = ((cz << 4) - playerZ) * pixelsPerBlock;
+                    double x2 = x1 + 16.0 * pixelsPerBlock;
+                    double y2 = y1 + 16.0 * pixelsPerBlock;
+                    if (ChunkScanner.isOreVeinBorderChunk(cx)) {
+                        GL11.glVertex3d(x1, y1, MASK_Z);
+                        GL11.glVertex3d(x1, y2, MASK_Z);
+                    }
+                    if (ChunkScanner.isOreVeinBorderChunk(cz)) {
+                        GL11.glVertex3d(x1, y1, MASK_Z);
+                        GL11.glVertex3d(x2, y1, MASK_Z);
+                    }
+                }
             }
             GL11.glEnd();
-            GL11.glLineWidth(1.0f);
         }
 
         GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
     }
 
     private void renderEntities(
@@ -355,7 +374,7 @@ public class MinimapRenderer {
         double rad = Math.toRadians(mapRotationDeg);
         double cos = Math.cos(rad);
         double sin = Math.sin(rad);
-        double clipLimit = half - 5.0;
+        double clipLimit = half - 4.5;
 
         for (int i = 0; i < entities.size(); i++) {
             RadarEntity re = entities.get(i);
@@ -368,8 +387,7 @@ public class MinimapRenderer {
             if (cfg.circularMinimap) {
                 double distSq = rx * rx + ry * ry;
                 if (distSq > clipLimit * clipLimit) {
-                    // Pin players to the rim of the minimap so you always know their direction!
-                    if (re.category == com.saifun.map.radar.EntityCategory.PLAYER) {
+                    if (re.category == EntityCategory.PLAYER) {
                         double dist = Math.sqrt(distSq);
                         rx = (rx / dist) * clipLimit;
                         ry = (ry / dist) * clipLimit;
@@ -379,7 +397,7 @@ public class MinimapRenderer {
                 }
             } else {
                 if (Math.abs(rx) > clipLimit || Math.abs(ry) > clipLimit) {
-                    if (re.category == com.saifun.map.radar.EntityCategory.PLAYER) {
+                    if (re.category == EntityCategory.PLAYER) {
                         double maxAbs = Math.max(Math.abs(rx), Math.abs(ry));
                         rx = (rx / maxAbs) * clipLimit;
                         ry = (ry / maxAbs) * clipLimit;
@@ -389,7 +407,7 @@ public class MinimapRenderer {
                 }
             }
 
-            EntityIconRenderer.renderEntity(re, centerX + rx, centerY + ry, playerY, 1.0f);
+            EntityIconRenderer.renderEntity(re, centerX + rx, centerY + ry, playerY, 1.0f, 1.0f);
         }
     }
 
@@ -413,7 +431,7 @@ public class MinimapRenderer {
         double rad = Math.toRadians(mapRotationDeg);
         double cos = Math.cos(rad);
         double sin = Math.sin(rad);
-        double clipLimit = half - 4.0;
+        double clipLimit = half - 5.0;
 
         for (int i = 0; i < wps.size(); i++) {
             Waypoint wp = wps.get(i);
@@ -444,52 +462,60 @@ public class MinimapRenderer {
 
             double sx = centerX + rx;
             double sy = centerY + ry;
-            float badgeScale = clamped ? 0.62f : 0.72f;
+            float badgeScale = clamped ? 0.55f : 0.65f;
 
             GL11.glPushMatrix();
             GL11.glTranslated(sx, sy, 0.0);
             GL11.glScalef(badgeScale, badgeScale, 1.0f);
-            GL11.glDisable(GL11.GL_TEXTURE_2D);
-            drawRect(-6.5, -6.5, 6.5, 6.5, 0.0, 0xDD0D1117);
-            drawRect(-5.2, -5.2, 5.2, 5.2, 0.0, wp.getArgb(clamped ? 200 : 245));
-            GL11.glEnable(GL11.GL_TEXTURE_2D);
+            GLDraw.rect(-6.2, -6.2, 6.2, 6.2, clamped ? 0xCC0A0D12 : 0xEE0A0D12);
+            GLDraw.rect(-5.0, -5.0, 5.0, 5.0, wp.getArgb(clamped ? 205 : 245));
             if (fr != null) {
                 String init = wp.initials != null ? wp.initials : "W";
-                fr.drawStringWithShadow(init, -fr.getStringWidth(init) / 2, -4, 0xFFFFFFFF);
+                GLDraw.drawCenteredText(fr, init, 0.3, -3.5, 0.95f, 0xFFFFFFFF);
             }
             GL11.glPopMatrix();
         }
     }
 
-    private static void renderPlayerArrow(double cx, double cy, float angleDeg) {
+    private static void renderPlayerMarker(double cx, double cy, float angleDeg, boolean showArrow) {
         GL11.glPushMatrix();
         GL11.glTranslated(cx, cy, 0.0);
-        GL11.glRotatef(angleDeg, 0.0f, 0.0f, 1.0f);
-        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GLDraw.ensureBlend();
 
-        // Dark outer silhouette
-        setColor(0xEE0B0E14);
-        GL11.glBegin(GL11.GL_TRIANGLES);
-        GL11.glVertex2d(0.0, -5.6);
-        GL11.glVertex2d(-4.4, 4.4);
-        GL11.glVertex2d(0.0, 2.2);
-        GL11.glVertex2d(0.0, -5.6);
-        GL11.glVertex2d(0.0, 2.2);
-        GL11.glVertex2d(4.4, 4.4);
-        GL11.glEnd();
+        if (!showArrow) {
+            // Minimalist crisp modern Xaero center crosshair dot (like screenshot #8!)
+            GLDraw.rect(-2.5, -0.7, 2.5, 0.7, 0xCC0A0D12);
+            GLDraw.rect(-0.7, -2.5, 0.7, 2.5, 0xCC0A0D12);
+            GLDraw.rect(-2.0, -0.45, 2.0, 0.45, 0xFFFFFFFF);
+            GLDraw.rect(-0.45, -2.0, 0.45, 2.0, 0xFFFFFFFF);
+        } else {
+            GL11.glRotatef(angleDeg, 0.0f, 0.0f, 1.0f);
+            GL11.glDisable(GL11.GL_TEXTURE_2D);
 
-        // Crisp bright white chevron
-        setColor(0xFFFFFFFF);
-        GL11.glBegin(GL11.GL_TRIANGLES);
-        GL11.glVertex2d(0.0, -4.3);
-        GL11.glVertex2d(-3.2, 3.2);
-        GL11.glVertex2d(0.0, 1.3);
-        GL11.glVertex2d(0.0, -4.3);
-        GL11.glVertex2d(0.0, 1.3);
-        GL11.glVertex2d(3.2, 3.2);
-        GL11.glEnd();
+            GLDraw.setColor(0xEE0A0D12);
+            GL11.glBegin(GL11.GL_TRIANGLES);
+            GL11.glVertex2d(0.0, -4.8);
+            GL11.glVertex2d(-3.6, 3.6);
+            GL11.glVertex2d(0.0, 1.6);
+            GL11.glVertex2d(0.0, -4.8);
+            GL11.glVertex2d(0.0, 1.6);
+            GL11.glVertex2d(3.6, 3.6);
+            GL11.glEnd();
 
-        GL11.glEnable(GL11.GL_TEXTURE_2D);
+            GLDraw.setColor(0xFFFFFFFF);
+            GL11.glBegin(GL11.GL_TRIANGLES);
+            GL11.glVertex2d(0.0, -3.6);
+            GL11.glVertex2d(-2.5, 2.5);
+            GL11.glVertex2d(0.0, 1.0);
+            GL11.glVertex2d(0.0, -3.6);
+            GL11.glVertex2d(0.0, 1.0);
+            GL11.glVertex2d(2.5, 2.5);
+            GL11.glEnd();
+
+            GL11.glEnable(GL11.GL_TEXTURE_2D);
+        }
+
+        GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
         GL11.glPopMatrix();
     }
 
@@ -499,33 +525,26 @@ public class MinimapRenderer {
         MapConfig cfg
     ) {
         if (cfg.frameStyle == MapConfig.FrameStyle.NONE) return;
-        GL11.glDisable(GL11.GL_TEXTURE_2D);
-
         boolean modern = cfg.frameStyle == MapConfig.FrameStyle.XAERO_MODERN;
-        double outerThick = modern ? 2.4 : 1.2;
 
         if (cfg.circularMinimap) {
-            drawCircleRing(cx, cy, half - 1.5, half - 1.5 + outerThick, cfg.frameBorderColor);
             if (modern) {
-                drawCircleRing(cx, cy, half - 1.9, half - 1.2, 0x77FFFFFF);
+                GLDraw.ring(cx, cy, half - 1.6, half - 0.8, 0xFF14171D, CIRCLE_SEGMENTS);
+                GLDraw.ring(cx, cy, half - 0.8, half + 0.4, 0xFF8E96A3, CIRCLE_SEGMENTS);
+                GLDraw.ring(cx, cy, half + 0.4, half + 1.4, 0xFF14171D, CIRCLE_SEGMENTS);
+            } else {
+                GLDraw.ring(cx, cy, half - 1.2, half + 0.6, 0xDD14171D, CIRCLE_SEGMENTS);
             }
         } else {
-            // Outer dark frame
-            drawRect(left - outerThick, top - outerThick, left + size + outerThick, top, 0.0, cfg.frameBorderColor);
-            drawRect(left - outerThick, top + size, left + size + outerThick, top + size + outerThick, 0.0, cfg.frameBorderColor);
-            drawRect(left - outerThick, top, left, top + size, 0.0, cfg.frameBorderColor);
-            drawRect(left + size, top, left + size + outerThick, top + size, 0.0, cfg.frameBorderColor);
             if (modern) {
-                // Crisp subtle inner bevel highlight
-                int bevel = 0x55FFFFFF;
-                drawRect(left, top, left + size, top + 0.8, 0.0, bevel);
-                drawRect(left, top + size - 0.8, left + size, top + size, 0.0, bevel);
-                drawRect(left, top, left + 0.8, top + size, 0.0, bevel);
-                drawRect(left + size - 0.8, top, left + size, top + size, 0.0, bevel);
+                // Exact modern Xaero 3-layer hairline frame (dark -> soft steel gray -> dark, matching screenshot #8!)
+                GLDraw.rectOutline(left - 2.4, top - 2.4, left + size + 2.4, top + size + 2.4, 1.0, 0xFF12151B);
+                GLDraw.rectOutline(left - 1.4, top - 1.4, left + size + 1.4, top + size + 1.4, 1.0, 0xFF8E96A3);
+                GLDraw.rectOutline(left - 0.4, top - 0.4, left + size + 0.4, top + size + 0.4, 0.8, 0xFF12151B);
+            } else {
+                GLDraw.rectOutline(left - 1.0, top - 1.0, left + size + 1.0, top + size + 1.0, 1.0, 0xCC12151B);
             }
         }
-
-        GL11.glEnable(GL11.GL_TEXTURE_2D);
     }
 
     private static void renderCompass(
@@ -538,8 +557,8 @@ public class MinimapRenderer {
 
         String[] labels = { "N", "E", "S", "W" };
         double[] baseAngles = { -90.0, 0.0, 90.0, 180.0 };
-        float scale = 0.72f;
-        double radius = half - 1.0;
+        float scale = 0.62f;
+        double inset = 7.5;
 
         for (int i = 0; i < 4; i++) {
             double ang = Math.toRadians(baseAngles[i] + mapRotationDeg);
@@ -549,30 +568,20 @@ public class MinimapRenderer {
             double px;
             double py;
             if (circular) {
-                px = cx + dx * radius;
-                py = cy + dy * radius;
+                px = cx + dx * (half - inset);
+                py = cy + dy * (half - inset);
             } else {
-                // Project onto square perimeter cleanly
                 double m = Math.max(Math.abs(dx), Math.abs(dy));
-                px = cx + (dx / m) * (half - 1.5);
-                py = cy + (dy / m) * (half - 1.5);
+                px = cx + (dx / m) * (half - inset);
+                py = cy + (dy / m) * (half - inset);
             }
 
-            GL11.glPushMatrix();
-            GL11.glTranslated(px, py, 0.0);
-            GL11.glScalef(scale, scale, 1.0f);
+            // Sleek micro-badge tucked cleanly inside the rim (matching modern Xaero screenshot #8!)
+            int bg = i == 0 ? 0xBB4F5FD5 : 0xAA3B478F;
+            int fg = i == 0 ? 0xFFFFFFFF : 0xFFE2E8F0;
 
-            String s = labels[i];
-            int w = fr.getStringWidth(s);
-            int bg = i == 0 ? 0xCC991B1B : 0xCC11161F;
-            int fg = i == 0 ? 0xFFFFE4E6 : 0xFFE2E8F0;
-
-            GL11.glDisable(GL11.GL_TEXTURE_2D);
-            drawRect(-w * 0.5 - 2.2, -fr.FONT_HEIGHT * 0.5 - 1.2, w * 0.5 + 2.2, fr.FONT_HEIGHT * 0.5 + 1.2, 0.0, bg);
-            GL11.glEnable(GL11.GL_TEXTURE_2D);
-            fr.drawStringWithShadow(s, -w / 2, -fr.FONT_HEIGHT / 2 + 1, fg);
-
-            GL11.glPopMatrix();
+            GLDraw.rect(px - 3.6, py - 3.6, px + 3.6, py + 3.6, bg);
+            GLDraw.drawCenteredText(fr, labels[i], px + 0.3, py - 2.3, scale, fg);
         }
     }
 
@@ -596,12 +605,8 @@ public class MinimapRenderer {
         StringBuilder line1 = new StringBuilder();
         if (cfg.showCoordinates) {
             line1.append(px).append(", ").append(py).append(", ").append(pz);
-            if (cfg.showDimensionCoords) {
-                if (world.provider.dimensionId == -1) {
-                    line1.append(" (OW: ").append(px * 8).append(", ").append(pz * 8).append(")");
-                } else if (world.provider.dimensionId == 0 && caveMode) {
-                    line1.append(" (N: ").append(px / 8).append(", ").append(pz / 8).append(")");
-                }
+            if (cfg.showDimensionCoords && world.provider.dimensionId == -1) {
+                line1.append(" (").append(px * 8).append(", ").append(pz * 8).append(")");
             }
         }
 
@@ -609,9 +614,9 @@ public class MinimapRenderer {
         if (cfg.showBiome) {
             BiomeGenBase biome = world.getBiomeGenForCoords(px, pz);
             String bName = biome != null ? biome.biomeName : "Unknown";
-            line2 = caveMode ? (bName + " [CAVE]") : bName;
+            line2 = caveMode ? (bName + " [Cave]") : bName;
         } else if (caveMode) {
-            line2 = "[CAVE MODE]";
+            line2 = "Cave Mode";
         }
 
         String line3 = "";
@@ -622,7 +627,7 @@ public class MinimapRenderer {
             int light = world.blockExists(px, Math.max(0, Math.min(255, py)), pz)
                 ? world.getBlockLightValue(px, Math.max(0, Math.min(255, py)), pz)
                 : 0;
-            line3 = String.format("%02d:%02d  |  L:%d  |  Dim %d", hours, mins, light, world.provider.dimensionId);
+            line3 = String.format("%02d:%02d | L:%d", hours, mins, light);
         }
 
         int lines = 0;
@@ -631,81 +636,27 @@ public class MinimapRenderer {
         if (!line3.isEmpty()) lines++;
         if (lines == 0) return;
 
-        float textScale = 0.72f;
-        int lineHeight = Math.round(10 * textScale) + 2;
-        int boxH = lines * lineHeight + 5;
-        int boxY = placeAbove ? (top - boxH - 4) : (top + size + 4);
+        float textScale = 0.78f;
+        int lineHeight = 9;
+        int totalH = lines * lineHeight;
+        int startY = placeAbove ? (top - totalH - 6) : (top + size + 5);
 
-        GL11.glDisable(GL11.GL_TEXTURE_2D);
-        drawRect(left, boxY, left + size, boxY + boxH, 0.0, 0xB80E1218);
-        drawRect(left, boxY, left + size, boxY + 0.8, 0.0, 0x553A7BD5);
-        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        if (cfg.showInfoBarBackground) {
+            GLDraw.rect(left, startY - 2, left + size, startY + totalH + 2, 0x990A0D12);
+        }
 
-        int curY = boxY + 3;
+        int curY = startY;
         if (line1.length() > 0) {
-            drawCenteredScaled(fr, line1.toString(), left + size * 0.5, curY, textScale, 0xFFF1F5F9);
+            GLDraw.drawCenteredText(fr, line1.toString(), left + size * 0.5, curY, textScale, 0xFFF8FAFC);
             curY += lineHeight;
         }
         if (!line2.isEmpty()) {
-            int col = caveMode ? 0xFFFBBF24 : 0xFF93C5FD;
-            drawCenteredScaled(fr, line2, left + size * 0.5, curY, textScale, col);
+            int col = caveMode ? 0xFFFBBF24 : 0xFFCBD5E1;
+            GLDraw.drawCenteredText(fr, line2, left + size * 0.5, curY, 0.70f, col);
             curY += lineHeight;
         }
         if (!line3.isEmpty()) {
-            drawCenteredScaled(fr, line3, left + size * 0.5, curY, textScale, 0xFF94A3B8);
+            GLDraw.drawCenteredText(fr, line3, left + size * 0.5, curY, 0.68f, 0xFF94A3B8);
         }
-    }
-
-    private static void drawCenteredScaled(
-        FontRenderer fr, String text, double centerX, double y, float scale, int color
-    ) {
-        GL11.glPushMatrix();
-        GL11.glTranslated(centerX, y, 0.0);
-        GL11.glScalef(scale, scale, 1.0f);
-        int w = fr.getStringWidth(text);
-        fr.drawStringWithShadow(text, -w / 2, 0, color);
-        GL11.glPopMatrix();
-    }
-
-    private static void drawFilledCircle(double cx, double cy, double r, double z, int argb) {
-        setColor(argb);
-        GL11.glBegin(GL11.GL_TRIANGLE_FAN);
-        GL11.glVertex3d(cx, cy, z);
-        for (int i = 0; i <= CIRCLE_SEGMENTS; i++) {
-            double ang = (Math.PI * 2.0 * i) / CIRCLE_SEGMENTS;
-            GL11.glVertex3d(cx + Math.cos(ang) * r, cy + Math.sin(ang) * r, z);
-        }
-        GL11.glEnd();
-    }
-
-    private static void drawCircleRing(double cx, double cy, double innerR, double outerR, int argb) {
-        setColor(argb);
-        GL11.glBegin(GL11.GL_TRIANGLE_STRIP);
-        for (int i = 0; i <= CIRCLE_SEGMENTS; i++) {
-            double ang = (Math.PI * 2.0 * i) / CIRCLE_SEGMENTS;
-            double cos = Math.cos(ang);
-            double sin = Math.sin(ang);
-            GL11.glVertex2d(cx + cos * outerR, cy + sin * outerR);
-            GL11.glVertex2d(cx + cos * innerR, cy + sin * innerR);
-        }
-        GL11.glEnd();
-    }
-
-    private static void drawRect(double x1, double y1, double x2, double y2, double z, int argb) {
-        setColor(argb);
-        GL11.glBegin(GL11.GL_QUADS);
-        GL11.glVertex3d(x1, y2, z);
-        GL11.glVertex3d(x2, y2, z);
-        GL11.glVertex3d(x2, y1, z);
-        GL11.glVertex3d(x1, y1, z);
-        GL11.glEnd();
-    }
-
-    private static void setColor(int argb) {
-        float a = ((argb >>> 24) & 0xFF) / 255.0f;
-        float r = ((argb >>> 16) & 0xFF) / 255.0f;
-        float g = ((argb >>> 8) & 0xFF) / 255.0f;
-        float b = (argb & 0xFF) / 255.0f;
-        GL11.glColor4f(r, g, b, a);
     }
 }

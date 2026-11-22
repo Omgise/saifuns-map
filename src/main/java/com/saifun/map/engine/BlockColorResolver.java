@@ -2,10 +2,13 @@ package com.saifun.map.engine;
 
 import com.saifun.map.config.MapConfig;
 import net.minecraft.block.Block;
+import net.minecraft.block.BlockBush;
 import net.minecraft.block.BlockDoublePlant;
+import net.minecraft.block.BlockFlower;
 import net.minecraft.block.BlockGrass;
 import net.minecraft.block.BlockLeavesBase;
 import net.minecraft.block.BlockLilyPad;
+import net.minecraft.block.BlockRailBase;
 import net.minecraft.block.BlockTallGrass;
 import net.minecraft.block.BlockVine;
 import net.minecraft.block.material.MapColor;
@@ -20,9 +23,10 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Resolves rich, Xaero-style RGB colors for vanilla and modded GTNH blocks.
- * Samples the block's loaded TextureAtlasSprite top face directly in CPU memory (zero GL stalls,
- * Angelica-safe), caches results by (blockId, meta), and applies accurate 1.7.10 biome tinting.
+ * Modern Xaero-calibrated block & biome color resolver for Minecraft 1.7.10 + GTNH mods.
+ * - Normalizes grayscale biome-tinted textures (grass, leaves) so meadows look natural & lush, not neon/dark.
+ * - Gives rivers/oceans rich sapphire-blue hues instead of muddy grey.
+ * - Distinguishes flat floral/grass overlays so flowers appear as charming dots without adding fake height noise.
  */
 public final class BlockColorResolver {
 
@@ -55,79 +59,98 @@ public final class BlockColorResolver {
     }
 
     public static boolean isWaterLike(Block block) {
-        if (block == null) return false;
-        Material mat = block.getMaterial();
-        return mat == Material.water;
+        return block != null && block.getMaterial() == Material.water;
     }
 
+    /**
+     * Blocks completely skipped during surface height/color scan.
+     */
     public static boolean isTransparentForSurface(Block block) {
         if (block == null || block == Blocks.air) return true;
         Material mat = block.getMaterial();
         if (mat == Material.air || mat == Material.fire) return true;
-        // Skip thin/non-occluding plants & torches so terrain underneath stays crisp
         if (block == Blocks.torch || block == Blocks.redstone_torch || block == Blocks.unlit_redstone_torch
             || block == Blocks.tripwire || block == Blocks.tripwire_hook || block == Blocks.lever
-            || block == Blocks.wooden_button || block == Blocks.stone_button) {
+            || block == Blocks.wooden_button || block == Blocks.stone_button
+            || block == Blocks.tallgrass || block instanceof BlockTallGrass
+            || block instanceof BlockDoublePlant) {
             return true;
         }
         return false;
     }
 
+    /**
+     * Flat decorative overlays (flowers, rails, snow carpet, lily pads):
+     * they contribute a subtle color accent WITHOUT increasing terrain elevation (preventing noise!).
+     */
+    public static boolean isFlatAccentBlock(Block block) {
+        if (block == null) return false;
+        return block instanceof BlockFlower
+            || block == Blocks.yellow_flower
+            || block == Blocks.red_flower
+            || block instanceof BlockLilyPad
+            || block instanceof BlockRailBase
+            || block == Blocks.snow_layer
+            || (block instanceof BlockBush && !(block instanceof BlockTallGrass) && !(block instanceof BlockDoublePlant));
+    }
+
+    public static boolean isFoliageBlock(Block block) {
+        return block instanceof BlockLeavesBase || block instanceof BlockVine;
+    }
+
     private static int computeBaseColor(Block block, int meta) {
-        // Water has a clean deep base tinted by biome
+        // Rich modern Xaero water base
         if (block.getMaterial() == Material.water) {
-            return 0x2F5FD0;
+            return 0x3866D6;
         }
         if (block.getMaterial() == Material.lava) {
-            return 0xE85A19;
+            return 0xEB5E1A;
         }
         if (block == Blocks.snow_layer || block == Blocks.snow) {
-            return 0xF0F6FA;
+            return 0xEDF4FA;
         }
         if (block == Blocks.ice || block == Blocks.packed_ice) {
-            return 0x8CB8F0;
+            return 0x8EBDF5;
+        }
+        // Vanilla grass top & leaves are grayscale masks in 1.7.10; use clean bright neutral luminance
+        // so biome color multiplication produces authentic, smooth Xaero greens!
+        if (block instanceof BlockGrass) {
+            return 0xC8D0C2;
+        }
+        if (block instanceof BlockLeavesBase) {
+            return 0x8FA08A;
         }
 
-        // Sample top-face TextureAtlasSprite directly from CPU memory
         int sampled = sampleIconColor(block, meta);
         if (sampled != 0) {
             return sampled;
         }
 
-        // Fallback to MapColor
         try {
             MapColor mc = block.getMapColor(meta);
             if (mc != null && mc.colorValue != 0) {
                 return mc.colorValue & 0xFFFFFF;
             }
-        } catch (Throwable ignored) {
-            // Some modded blocks throw on invalid meta
-        }
+        } catch (Throwable ignored) {}
 
-        return 0x7A7A7A;
+        return 0x7D828A;
     }
 
     private static int sampleIconColor(Block block, int meta) {
         try {
-            IIcon icon = block.getIcon(1, meta); // Side 1 = TOP
-            if (!(icon instanceof TextureAtlasSprite)) {
-                return 0;
-            }
+            IIcon icon = block.getIcon(1, meta);
+            if (!(icon instanceof TextureAtlasSprite)) return 0;
             TextureAtlasSprite sprite = (TextureAtlasSprite) icon;
-            if (sprite.getFrameCount() <= 0) {
-                return 0;
-            }
+            if (sprite.getFrameCount() <= 0) return 0;
             int[][] frameData = sprite.getFrameTextureData(0);
-            if (frameData == null || frameData.length == 0 || frameData[0] == null) {
-                return 0;
-            }
+            if (frameData == null || frameData.length == 0 || frameData[0] == null) return 0;
             int[] pixels = frameData[0];
             long sumR = 0, sumG = 0, sumB = 0;
             int count = 0;
             for (int i = 0; i < pixels.length; i++) {
                 int argb = pixels[i];
                 int a = (argb >>> 24) & 0xFF;
-                if (a < 64) continue;
+                if (a < 80) continue;
                 sumR += (argb >>> 16) & 0xFF;
                 sumG += (argb >>> 8) & 0xFF;
                 sumB += argb & 0xFF;
@@ -144,40 +167,40 @@ public final class BlockColorResolver {
     }
 
     private static int applyBiomeTint(Block block, int meta, int baseRgb, int x, int z, BiomeGenBase biome) {
-        if (block instanceof BlockGrass || block instanceof BlockTallGrass || block instanceof BlockDoublePlant) {
+        if (block instanceof BlockGrass) {
             int grass = biome.getBiomeGrassColor(x, 64, z);
-            return multiplyColor(baseRgb, grass);
+            // Slightly soften extreme saturation for natural painterly Xaero grass
+            int tinted = multiplyColor(baseRgb, grass);
+            return blendColor(tinted, 0x7A9A58, 0.14f);
         }
         if (block instanceof BlockLeavesBase || block instanceof BlockVine) {
-            // Birch & spruce leaves have fixed tints in 1.7.10
+            int foliage;
             if (block == Blocks.leaves && (meta & 3) == 1) {
-                return multiplyColor(baseRgb, 0x619961);
+                foliage = 0x588A56; // Spruce
+            } else if (block == Blocks.leaves && (meta & 3) == 2) {
+                foliage = 0x7EA452; // Birch
+            } else {
+                foliage = biome.getBiomeFoliageColor(x, 64, z);
             }
-            if (block == Blocks.leaves && (meta & 3) == 2) {
-                return multiplyColor(baseRgb, 0x80A755);
-            }
-            int foliage = biome.getBiomeFoliageColor(x, 64, z);
             return multiplyColor(baseRgb, foliage);
         }
         if (block instanceof BlockLilyPad) {
-            return multiplyColor(baseRgb, 0x208030);
+            return 0x2F8542;
         }
         if (block.getMaterial() == Material.water) {
             int waterTint = biome.waterColorMultiplier;
             if (waterTint != 0xFFFFFF && waterTint != 0) {
-                return multiplyColor(baseRgb, waterTint);
+                // Blend gently with biome tint so rivers always stay distinctly blue/teal, never muddy grey
+                return blendColor(baseRgb, multiplyColor(0x5282E8, waterTint), 0.45f);
             }
             return baseRgb;
         }
-        // Fallback for modded grass/foliage blocks that return non-white render color
         try {
             int renderColor = block.getRenderColor(meta);
             if (renderColor != 0xFFFFFF && renderColor != 0) {
                 return multiplyColor(baseRgb, renderColor);
             }
-        } catch (Throwable ignored) {
-            // Ignore buggy modded blocks
-        }
+        } catch (Throwable ignored) {}
         return baseRgb;
     }
 

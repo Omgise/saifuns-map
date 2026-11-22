@@ -2,6 +2,7 @@ key.categories.saifunsmap=Saifun's Map
 key.saifunsmap.settings=Open Map Settings
 key.saifunsmap.worldmap=Open World Map
 key.saifunsmap.toggle_minimap=Toggle Minimap HUD
+key.saifunsmap.enlarge_minimap=Enlarge Minimap (Smooth)
 key.saifunsmap.zoom_in=Minimap Zoom In
 key.saifunsmap.zoom_out=Minimap Zoom Out
 key.saifunsmap.toggle_cave=Cycle Cave Mode

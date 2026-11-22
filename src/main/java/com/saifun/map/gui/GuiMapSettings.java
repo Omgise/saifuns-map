@@ -103,6 +103,7 @@ public class GuiMapSettings extends GuiScreen {
                 });
                 addBool("Compass", () -> cfg.showCompass, () -> cfg.showCompass = !cfg.showCompass);
                 addBool("Info Bar", () -> cfg.showInfoBar, () -> cfg.showInfoBar = !cfg.showInfoBar);
+                addBool("Info Bar Box", () -> cfg.showInfoBarBackground, () -> cfg.showInfoBarBackground = !cfg.showInfoBarBackground);
                 addBool("Biome & Time", () -> cfg.showBiome, () -> {
                     cfg.showBiome = !cfg.showBiome;
                     cfg.showTimeAndLight = cfg.showBiome;
@@ -132,9 +133,8 @@ public class GuiMapSettings extends GuiScreen {
             case RADAR:
                 addBool("Entity Radar", () -> cfg.radarEnabled, () -> cfg.radarEnabled = !cfg.radarEnabled);
                 addOption("Icon Style", () -> cfg.radarIconStyle.name(), () -> {
-                    cfg.radarIconStyle = cfg.radarIconStyle == MapConfig.RadarIconStyle.HEADS
-                        ? MapConfig.RadarIconStyle.DOTS
-                        : MapConfig.RadarIconStyle.HEADS;
+                    MapConfig.RadarIconStyle[] vals = MapConfig.RadarIconStyle.values();
+                    cfg.radarIconStyle = vals[(cfg.radarIconStyle.ordinal() + 1) % vals.length];
                 });
                 addBool("Players (Always)", () -> cfg.showPlayers, () -> cfg.showPlayers = !cfg.showPlayers);
                 addBool("Player Names", () -> cfg.showPlayerNames, () -> cfg.showPlayerNames = !cfg.showPlayerNames);
@@ -159,6 +159,10 @@ public class GuiMapSettings extends GuiScreen {
                 addBool("Navigator on Minimap", () -> cfg.showNavigatorOnMinimap, () -> cfg.showNavigatorOnMinimap = !cfg.showNavigatorOnMinimap);
                 addBool("Navigator on WorldMap", () -> cfg.showNavigatorOnWorldMap, () -> cfg.showNavigatorOnWorldMap = !cfg.showNavigatorOnWorldMap);
                 addBool("3D World Waypoints", () -> cfg.showWaypointsInWorld, () -> cfg.showWaypointsInWorld = !cfg.showWaypointsInWorld);
+                addBool("Always WP Names", () -> cfg.alwaysShowWaypointNames, () -> cfg.alwaysShowWaypointNames = !cfg.alwaysShowWaypointNames);
+                addOption("3D WP Scale", () -> String.format("%.2fx", cfg.waypointScale), () -> {
+                    cfg.waypointScale = cfg.waypointScale >= 1.5f ? 0.75f : cfg.waypointScale + 0.25f;
+                });
                 addBool("Waypoint Beams", () -> cfg.showWaypointBeam, () -> cfg.showWaypointBeam = !cfg.showWaypointBeam);
                 addBool("Auto Death Points", () -> cfg.autoDeathWaypoints, () -> cfg.autoDeathWaypoints = !cfg.autoDeathWaypoints);
                 break;

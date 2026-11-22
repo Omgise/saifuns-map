@@ -12,8 +12,8 @@ import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Persisted JSON configuration for Saifun's Map.
- * All fields are directly editable in-game via GuiMapSettings with live preview.
+ * Persisted JSON configuration for Saifun's Map v2.0.
+ * Defaults tuned for modern Xaero minimalism and clean GTNH gameplay.
  */
 public class MapConfig {
 
@@ -42,6 +42,7 @@ public class MapConfig {
 
     public enum RadarIconStyle {
         HEADS,
+        DIAMONDS,
         DOTS
     }
 
@@ -51,23 +52,27 @@ public class MapConfig {
         NONE
     }
 
-    // --- Minimap Display ---
+    // --- Config schema migration ---
+    public int configVersion = 2;
+
+    // --- Minimap Display (Minimalist Xaero defaults) ---
     public boolean minimapEnabled = true;
     public boolean circularMinimap = false;
-    public int minimapSize = 148;
+    public int minimapSize = 144;
     public Corner minimapCorner = Corner.TOP_RIGHT;
-    public int offsetX = 8;
-    public int offsetY = 8;
+    public int offsetX = 6;
+    public int offsetY = 6;
     public boolean lockNorth = false;
-    public float minimapZoom = 2.0f;
+    public float minimapZoom = 1.6f;
     public float minimapOpacity = 1.0f;
     public FrameStyle frameStyle = FrameStyle.XAERO_MODERN;
     public boolean showCompass = true;
     public boolean showInfoBar = true;
+    public boolean showInfoBarBackground = false; // Bare crisp shadowed text like modern Xaero!
     public boolean showCoordinates = true;
-    public boolean showBiome = true;
-    public boolean showTimeAndLight = true;
-    public boolean showDimensionCoords = true;
+    public boolean showBiome = false;
+    public boolean showTimeAndLight = false;
+    public boolean showDimensionCoords = false;
 
     // --- Map Rendering & Engine ---
     public boolean terrainShading = true;
@@ -76,19 +81,20 @@ public class MapConfig {
     public LightingMode lightingMode = LightingMode.AUTO;
     public CaveMode caveMode = CaveMode.AUTO;
     public int caveSliceHeight = 6;
-    public int chunksScannedPerTick = 6;
+    public int chunksScannedPerTick = 8;
     public boolean diskCacheEnabled = true;
 
-    // --- Overlays (GTNH-friendly) ---
+    // --- Overlays (Clean map by default; toggleable in 1 click or hotkey) ---
     public boolean showChunkGrid = false;
-    public boolean showOreVeinGrid = true;
-    public boolean highlightOreVeinCenter = true;
+    public boolean showOreVeinGrid = false;
+    public boolean highlightOreVeinCenter = false;
     public boolean showSlimeChunks = false;
 
-    // --- Waypoints & 3D World Markers ---
+    // --- Waypoints & 3D World Markers (Clean Xaero defaults) ---
     public boolean showWaypointsOnMinimap = true;
     public boolean showWaypointsOnWorldMap = true;
     public boolean showWaypointsInWorld = true;
+    public boolean alwaysShowWaypointNames = false; // Show name on crosshair focus / close range
     public boolean showWaypointBeam = false;
     public boolean autoDeathWaypoints = true;
     public int maxWaypointRenderDistance = 10000;
@@ -99,7 +105,7 @@ public class MapConfig {
     public boolean showNavigatorOnMinimap = true;
     public boolean showNavigatorOnWorldMap = true;
 
-    // --- Entity Radar (Zero FairPlay restrictions!) ---
+    // --- Entity Radar (Zero FairPlay restrictions! Compact heads by default) ---
     public boolean radarEnabled = true;
     public RadarIconStyle radarIconStyle = RadarIconStyle.HEADS;
     public float radarIconScale = 1.0f;
@@ -115,12 +121,12 @@ public class MapConfig {
     public boolean serverPlayerSyncEnabled = true;
 
     // --- Colors (ARGB) ---
-    public int frameBorderColor = 0xEE181A20;
-    public int frameAccentColor = 0xFF3A7BD5;
-    public int chunkGridColor = 0x44FFFFFF;
-    public int oreVeinGridColor = 0x99F5A623;
-    public int oreVeinCenterColor = 0x30F5A623;
-    public int slimeChunkColor = 0x4444FF55;
+    public int frameBorderColor = 0xFF14171D;
+    public int frameAccentColor = 0xFF9EA6B2;
+    public int chunkGridColor = 0x38FFFFFF;
+    public int oreVeinGridColor = 0x77F5A623;
+    public int oreVeinCenterColor = 0x22F5A623;
+    public int slimeChunkColor = 0x3844FF55;
 
     public static MapConfig get() {
         return instance;
@@ -132,6 +138,17 @@ public class MapConfig {
             try (InputStreamReader reader = new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8)) {
                 MapConfig loaded = GSON.fromJson(reader, MapConfig.class);
                 if (loaded != null) {
+                    if (loaded.configVersion < 2) {
+                        // Migrate v1 noisy defaults to clean v2 Xaero minimalism
+                        loaded.showOreVeinGrid = false;
+                        loaded.highlightOreVeinCenter = false;
+                        loaded.showInfoBarBackground = false;
+                        loaded.alwaysShowWaypointNames = false;
+                        loaded.minimapZoom = 1.6f;
+                        loaded.oreVeinGridColor = 0x77F5A623;
+                        loaded.oreVeinCenterColor = 0x22F5A623;
+                        loaded.configVersion = 2;
+                    }
                     instance = loaded;
                     instance.clampValues();
                 }
@@ -168,6 +185,8 @@ public class MapConfig {
         if (minimapOpacity > 1.0f) minimapOpacity = 1.0f;
         if (radarIconScale < 0.5f) radarIconScale = 0.5f;
         if (radarIconScale > 2.0f) radarIconScale = 2.0f;
+        if (waypointScale < 0.5f) waypointScale = 0.5f;
+        if (waypointScale > 2.0f) waypointScale = 2.0f;
         if (chunksScannedPerTick < 1) chunksScannedPerTick = 1;
         if (chunksScannedPerTick > 24) chunksScannedPerTick = 24;
         if (caveSliceHeight < 2) caveSliceHeight = 2;

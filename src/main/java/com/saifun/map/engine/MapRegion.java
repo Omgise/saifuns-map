@@ -155,30 +155,36 @@ public class MapRegion {
                 if (rgb != 0) {
                     int h = surfaceHeight[idx];
                     float shade = 1.0f;
+                    int wDepth = waterDepth[idx] & 0xFF;
+
                     if (shading) {
                         int hN = rz > 0 ? surfaceHeight[idx - SIZE] : h;
                         int hW = rx > 0 ? surfaceHeight[idx - 1] : h;
-                        int slope = (h - hN) * 2 + (h - hW);
-                        if (slope > 0) {
-                            shade = Math.min(1.22f, 1.0f + slope * 0.055f);
+                        int slope = (h - hN) + (h - hW);
+                        if (wDepth > 0) {
+                            // Water surface is flat; apply only gentle riverbed relief
+                            shade = 1.0f + Math.max(-2, Math.min(2, slope)) * 0.018f;
+                        } else if (slope > 0) {
+                            shade = Math.min(1.15f, 1.0f + Math.min(4, slope) * 0.038f);
                         } else if (slope < 0) {
-                            shade = Math.max(0.70f, 1.0f + slope * 0.065f);
+                            shade = Math.max(0.78f, 1.0f + Math.max(-4, slope) * 0.052f);
                         }
-                        // Subtle elevation contrast so mountains & valleys pop like Xaero
-                        shade *= 0.94f + Math.min(1.0f, Math.max(0.0f, (h - 40) / 140.0f)) * 0.12f;
+                        // Gentle altitude contour gradient (mountains brighter, valleys softly deeper)
+                        shade *= 0.96f + Math.min(1.0f, Math.max(0.0f, (h - 52) / 110.0f)) * 0.10f;
                     }
 
                     int finalRgb = BlockColorResolver.shadeColor(rgb, shade);
 
-                    int wDepth = waterDepth[idx] & 0xFF;
                     if (wDepth > 0) {
-                        int wCol = waterRgb[idx] != 0 ? waterRgb[idx] : 0x2F5FD0;
+                        int wCol = waterRgb[idx] != 0 ? waterRgb[idx] : 0x3866D6;
                         if (waterTrans) {
-                            float depthFactor = Math.min(0.86f, 0.34f + wDepth * 0.045f);
-                            int deepWater = BlockColorResolver.shadeColor(wCol, Math.max(0.55f, 1.0f - wDepth * 0.025f));
+                            // Crisp turquoise/blue shallows deepening into rich sapphire (matching modern Xaero!)
+                            float depthFactor = Math.min(0.92f, 0.56f + Math.min(10, wDepth) * 0.036f);
+                            float deepShade = Math.max(0.68f, 1.04f - Math.min(14, wDepth) * 0.025f);
+                            int deepWater = BlockColorResolver.shadeColor(wCol, deepShade);
                             finalRgb = BlockColorResolver.blendColor(finalRgb, deepWater, depthFactor);
                         } else {
-                            finalRgb = BlockColorResolver.shadeColor(wCol, Math.max(0.60f, 1.0f - wDepth * 0.02f));
+                            finalRgb = BlockColorResolver.shadeColor(wCol, Math.max(0.68f, 1.0f - Math.min(14, wDepth) * 0.022f));
                         }
                     }
 
@@ -325,6 +331,11 @@ public class MapRegion {
 
     public boolean hasSurfaceData() {
         return !populatedChunks.isEmpty();
+    }
+
+    public synchronized boolean isChunkPopulated(int localCx, int localCz) {
+        if (localCx < 0 || localCx >= CHUNKS_PER_SIDE || localCz < 0 || localCz >= CHUNKS_PER_SIDE) return false;
+        return populatedChunks.get((localCz << 5) | localCx);
     }
 
     /**

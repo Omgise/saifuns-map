@@ -14,8 +14,11 @@ import com.gtnewhorizons.navigator.api.model.waypoints.Waypoint;
 import com.gtnewhorizons.navigator.api.model.waypoints.WaypointManager;
 import com.saifun.map.SaifunsMapMod;
 import com.saifun.map.config.MapConfig;
+import com.saifun.map.render.GLDraw;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.gui.GuiScreen;
+import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.util.MathHelper;
 import net.minecraft.util.ResourceLocation;
 import org.lwjgl.opengl.GL11;
@@ -30,11 +33,10 @@ import java.util.Map;
 
 /**
  * Native bridge into GTNewHorizons/Navigator 1.1.x.
- * Automatically activates and renders ALL registered Navigator layers:
- * - VisualProspecting (GregTech Ore Veins, Underground Fluids, Thaumcraft Nodes, Search, Depletion, Waypoints)
- * - ServerUtilities (Claimed & Chunkloaded Chunks, interactive claiming)
- * - Dirty Chunks and any other NavigatorApi-compatible GTNH mod!
- * Works with ZERO mixins and ZERO dependency on JourneyMap being installed.
+ * Renders all registered Navigator layers (VisualProspecting Ore Veins, Underground Fluids,
+ * Thaumcraft Nodes, ServerUtilities Claims, Dirty Chunks) in 1:1 raw framebuffer pixel space
+ * (matching JourneyMap 5's exact coordinate system so icons, fonts, and anti-overlap labels
+ * scale identically and razor-sharp at 1080p/1440p/4K).
  */
 public class NavigatorBridge implements IGtnhLayerBridge {
 
@@ -84,13 +86,11 @@ public class NavigatorBridge implements IGtnhLayerBridge {
         }
     }
 
-    @SuppressWarnings("unchecked")
     private void ensureBootstrapped() {
         if (!reflectionReady) return;
         List<LayerManager> all = NavigatorApi.layerManagers;
         if (all == null || all.isEmpty()) return;
 
-        // Re-check if any new layers were registered since last check
         if (bootstrapped && orderedManagers.size() == all.size()) {
             return;
         }
@@ -108,13 +108,11 @@ public class NavigatorBridge implements IGtnhLayerBridge {
     private void bindLayer(LayerManager lm) {
         if (boundRenderers.containsKey(lm)) return;
         try {
-            // Check if Navigator already created a UniversalLayerRenderer for JourneyMap
             LayerRenderer existing = lm.getLayerRenderer(SupportedMods.JourneyMap);
             UniversalLayerRenderer ulr = null;
             if (existing instanceof UniversalLayerRenderer) {
                 ulr = (UniversalLayerRenderer) existing;
             } else {
-                // Bootstrap UniversalLayerRenderer even when JourneyMap is completely uninstalled!
                 Object created = (lm instanceof InteractableLayerManager)
                     ? addInteractableRendererMethod.invoke(lm, lm, SupportedMods.JourneyMap)
                     : addLayerRendererMethod.invoke(lm, lm, SupportedMods.JourneyMap);
@@ -124,7 +122,6 @@ public class NavigatorBridge implements IGtnhLayerBridge {
                     if (map != null) {
                         map.put(SupportedMods.JourneyMap, ulr);
                     }
-                    // Ensure currentDimSteps is initialized on the newly bound renderer!
                     refreshDimCacheMethod.invoke(lm);
                     lm.forceRefresh();
                 }
@@ -134,7 +131,6 @@ public class NavigatorBridge implements IGtnhLayerBridge {
                 boundRenderers.put(lm, ulr);
             }
 
-            // Bind our WaypointManager into InteractableLayerManager so double-clicking veins/nodes creates Saifun's Map waypoints!
             if (lm instanceof InteractableLayerManager) {
                 InteractableLayerManager ilm = (InteractableLayerManager) lm;
                 Map<SupportedMods, WaypointManager> wpMap = (Map<SupportedMods, WaypointManager>) waypointManagersMapField.get(ilm);
@@ -145,6 +141,12 @@ public class NavigatorBridge implements IGtnhLayerBridge {
         } catch (Throwable t) {
             SaifunsMapMod.LOG.debug("Could not bind Navigator layer {}: {}", lm.getClass().getSimpleName(), t.toString());
         }
+    }
+
+    private static int getGuiScaleFactor() {
+        Minecraft mc = Minecraft.getMinecraft();
+        ScaledResolution sr = new ScaledResolution(mc, mc.displayWidth, mc.displayHeight);
+        return Math.max(1, sr.getScaleFactor());
     }
 
     @Override
@@ -247,13 +249,31 @@ public class NavigatorBridge implements IGtnhLayerBridge {
         if (!isAvailable() || !MapConfig.get().showNavigatorOnWorldMap) return;
         ensureBootstrapped();
 
-        int visibleBlocksW = Math.max(64, (int) Math.ceil(screenWidth / Math.max(0.05, pixelsPerBlock)) + 64);
-        int visibleBlocksH = Math.max(64, (int) Math.ceil(screenHeight / Math.max(0.05, pixelsPerBlock)) + 64);
+        int scaleFactor = getGuiScaleFactor();
+        double invScale = 1.0 / scaleFactor;
+
+        int visibleBlocksW = Math.max(64, (int) Math.ceil(screenWidth / Math.max(0.05, pixelsPerBlock)) + 96);
+        int visibleBlocksH = Math.max(64, (int) Math.ceil(screenHeight / Math.max(0.05, pixelsPerBlock)) + 96);
         int cX = MathHelper.floor_double(centerBlockX);
         int cZ = MathHelper.floor_double(centerBlockZ);
-        double jmZoom = Math.log(Math.max(0.0625, pixelsPerBlock)) / LN2;
+
+        // JourneyMap 5 operates in native framebuffer pixels: blockSizeRaw = pixelsPerBlock * scaleFactor
+        double blockSizeRaw = pixelsPerBlock * scaleFactor;
+        double jmZoom = Math.max(0.0, Math.min(5.0, Math.log(Math.max(1.0, blockSizeRaw)) / LN2));
+        float drawScale = (float) Math.max(0.55, Math.min(1.15, blockSizeRaw / 4.0));
+        double fontScale = Math.max(0.75, Math.min(1.15, scaleFactor * 0.5));
+
+        double rawCenterX = centerScreenX * scaleFactor;
+        double rawCenterY = centerScreenY * scaleFactor;
+        double rawW = screenWidth * (double) scaleFactor;
+        double rawH = screenHeight * (double) scaleFactor;
 
         List<UniversalLayerRenderer> active = collectActiveRenderersSorted();
+        if (active.isEmpty()) return;
+
+        GL11.glPushMatrix();
+        GL11.glScaled(invScale, invScale, 1.0);
+
         for (UniversalLayerRenderer ulr : active) {
             LayerManager lm = findManagerFor(ulr);
             if (lm == null) continue;
@@ -268,20 +288,25 @@ public class NavigatorBridge implements IGtnhLayerBridge {
                     ILocationProvider loc = step.getLocation();
                     if (loc == null) continue;
 
-                    double sx = centerScreenX + (loc.getBlockX() - centerBlockX) * pixelsPerBlock;
-                    double sy = centerScreenY + (loc.getBlockZ() - centerBlockZ) * pixelsPerBlock;
+                    double sxRaw = rawCenterX + (loc.getBlockX() - centerBlockX) * blockSizeRaw;
+                    double syRaw = rawCenterY + (loc.getBlockZ() - centerBlockZ) * blockSizeRaw;
 
-                    // Quick frustum cull
-                    if (sx < -128 || sx > screenWidth + 128 || sy < -128 || sy > screenHeight + 128) {
+                    if (sxRaw < -256 || sxRaw > rawW + 256 || syRaw < -256 || syRaw > rawH + 256) {
                         continue;
                     }
 
                     GL11.glPushMatrix();
-                    step.drawJourneyMap(sx, sy, 1.0f, jmZoom, pixelsPerBlock, 1.0, 0.0);
+                    GLDraw.ensureBlend();
+                    GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+                    step.drawJourneyMap(sxRaw, syRaw, drawScale, jmZoom, blockSizeRaw, fontScale, 0.0);
                     GL11.glPopMatrix();
                 }
             } catch (Throwable ignored) {}
         }
+
+        GL11.glPopMatrix();
+        GLDraw.ensureBlend();
+        GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
     }
 
     @Override
@@ -295,12 +320,23 @@ public class NavigatorBridge implements IGtnhLayerBridge {
         if (!isAvailable() || !MapConfig.get().showNavigatorOnMinimap) return;
         ensureBootstrapped();
 
+        int scaleFactor = getGuiScaleFactor();
+        double invScale = 1.0 / scaleFactor;
+
         int pX = MathHelper.floor_double(playerX);
         int pZ = MathHelper.floor_double(playerZ);
         int radius = Math.max(32, (int) Math.ceil(worldRadiusBlocks) + 32);
-        double jmZoom = Math.log(Math.max(0.0625, pixelsPerBlock)) / LN2;
+
+        double blockSizeRaw = pixelsPerBlock * scaleFactor;
+        double jmZoom = Math.max(0.0, Math.min(5.0, Math.log(Math.max(1.0, blockSizeRaw)) / LN2));
+        float drawScale = 0.65f;
 
         List<UniversalLayerRenderer> active = collectActiveRenderersSorted();
+        if (active.isEmpty()) return;
+
+        GL11.glPushMatrix();
+        GL11.glScaled(invScale, invScale, 1.0);
+
         for (UniversalLayerRenderer ulr : active) {
             LayerManager lm = findManagerFor(ulr);
             if (lm == null) continue;
@@ -315,24 +351,33 @@ public class NavigatorBridge implements IGtnhLayerBridge {
                     ILocationProvider loc = step.getLocation();
                     if (loc == null) continue;
 
-                    double dx = (loc.getBlockX() - playerX) * pixelsPerBlock;
-                    double dz = (loc.getBlockZ() - playerZ) * pixelsPerBlock;
+                    double dxRaw = (loc.getBlockX() - playerX) * blockSizeRaw;
+                    double dzRaw = (loc.getBlockZ() - playerZ) * blockSizeRaw;
 
                     GL11.glPushMatrix();
-                    step.drawJourneyMap(dx, dz, 0.72f, jmZoom, pixelsPerBlock, 0.75, -mapRotationDeg);
+                    GLDraw.ensureBlend();
+                    GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+                    step.drawJourneyMap(dxRaw, dzRaw, drawScale, jmZoom, blockSizeRaw, 0.7, -mapRotationDeg);
                     GL11.glPopMatrix();
                 }
             } catch (Throwable ignored) {}
         }
+
+        GL11.glPopMatrix();
+        GLDraw.ensureBlend();
+        GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
     }
 
     @Override
     public void onMouseMove(int mouseX, int mouseY) {
         if (!isAvailable() || !MapConfig.get().showNavigatorOnWorldMap) return;
+        int sf = getGuiScaleFactor();
+        int rawX = mouseX * sf;
+        int rawY = mouseY * sf;
         for (UniversalLayerRenderer ulr : collectActiveRenderersSorted()) {
             if (ulr instanceof InteractableLayer) {
                 try {
-                    ((InteractableLayer) ulr).onMouseMove(mouseX, mouseY);
+                    ((InteractableLayer) ulr).onMouseMove(rawX, rawY);
                 } catch (Throwable ignored) {}
             }
         }
@@ -341,12 +386,15 @@ public class NavigatorBridge implements IGtnhLayerBridge {
     @Override
     public boolean onMapClick(boolean isDoubleClick, int mouseX, int mouseY, int blockX, int blockZ) {
         if (!isAvailable() || !MapConfig.get().showNavigatorOnWorldMap) return false;
+        int sf = getGuiScaleFactor();
+        int rawX = mouseX * sf;
+        int rawY = mouseY * sf;
         List<UniversalLayerRenderer> active = collectActiveRenderersSorted();
         for (int i = active.size() - 1; i >= 0; i--) {
             UniversalLayerRenderer ulr = active.get(i);
             if (ulr instanceof InteractableLayer) {
                 try {
-                    if (((InteractableLayer) ulr).onMapClick(isDoubleClick, mouseX, mouseY, blockX, blockZ)) {
+                    if (((InteractableLayer) ulr).onMapClick(isDoubleClick, rawX, rawY, blockX, blockZ)) {
                         return true;
                     }
                 } catch (Throwable ignored) {}
@@ -395,6 +443,7 @@ public class NavigatorBridge implements IGtnhLayerBridge {
         for (UniversalLayerRenderer ulr : collectActiveRenderersSorted()) {
             if (ulr instanceof InteractableLayer) {
                 try {
+                    GLDraw.ensureBlend();
                     ((InteractableLayer) ulr).drawCustomTooltip(fontRenderer, mouseX, mouseY, screenWidth, screenHeight);
                 } catch (Throwable ignored) {}
             }
@@ -421,10 +470,6 @@ public class NavigatorBridge implements IGtnhLayerBridge {
         return null;
     }
 
-    /**
-     * Bridges Navigator active waypoints (e.g. double-clicking an Ore Vein or Thaumcraft Node)
-     * directly into Saifun's Map WaypointManager!
-     */
     private static final class SaifunsNavigatorWaypointManager extends WaypointManager {
         private final com.saifun.map.waypoints.WaypointManager ourManager;
         private final String tagKey;
