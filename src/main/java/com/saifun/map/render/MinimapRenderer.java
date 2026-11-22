@@ -479,13 +479,14 @@ public class MinimapRenderer {
 
             double sx = centerX + rx;
             double sy = centerY + ry;
-            double iconSize = clamped ? 10.0 : 12.0;
+            boolean hasNative = wp.customIconDrawer != null;
+            double iconSize = hasNative ? (clamped ? 8.5 : 10.0) : (clamped ? 7.5 : 9.0);
             float iconAlpha = clamped ? 0.86f : 1.0f;
 
-            if (wp.customIconDrawer != null) {
+            if (hasNative) {
                 double h = iconSize * 0.5;
-                GLDraw.rect(sx - h - 1.2, sy - h - 1.2, sx + h + 1.2, sy + h + 1.2, GLDraw.withAlpha(0x070A0F, 0.92f * iconAlpha));
-                GLDraw.rectOutline(sx - h - 0.6, sy - h - 0.6, sx + h + 0.6, sy + h + 0.6, 1.0, GLDraw.withAlpha(0xFACC15, iconAlpha));
+                GLDraw.rect(sx - h - 1.1, sy - h - 1.1, sx + h + 1.1, sy + h + 1.1, GLDraw.withAlpha(0x070A0F, 0.92f * iconAlpha));
+                GLDraw.rectOutline(sx - h - 0.5, sy - h - 0.5, sx + h + 0.5, sy + h + 0.5, 1.0, GLDraw.withAlpha(0xFACC15, iconAlpha));
             }
             WaypointIconRenderer.drawWaypointIcon(wp, sx, sy, iconSize, iconAlpha, wp.color);
         }

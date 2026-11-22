@@ -24,6 +24,7 @@ import net.minecraft.client.gui.GuiTextField;
 import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.MathHelper;
+import net.minecraft.util.ResourceLocation;
 import net.minecraft.world.World;
 import net.minecraft.world.biome.BiomeGenBase;
 import org.lwjgl.input.Keyboard;
@@ -75,6 +76,10 @@ public class GuiWorldMap extends GuiScreen {
     private static final int BTN_ORE_GRID = 6;
     private static final int BTN_CHUNK_GRID = 7;
     private static final int BTN_WAYPOINTS = 8;
+
+    private static final ResourceLocation GTNH_LOGO_TEX =
+        new ResourceLocation("dreamcraft", "textures/icon/GTNH_256x256.png");
+    private static Boolean gtnhLogoAvailable = null;
 
     private final MapWorldCache worldCache;
     private final ChunkScanner chunkScanner;
@@ -183,8 +188,8 @@ public class GuiWorldMap extends GuiScreen {
         uiButtons.clear();
         MapConfig cfg = MapConfig.get();
 
-        // Top-left Gear (Settings)
-        uiButtons.add(new IconButton(BTN_SETTINGS, 8, 8, 22, Lang.tr("saifunsmap.worldmap.btn.settings"), false));
+        // Top-left GTNH Logo (Settings)
+        uiButtons.add(new IconButton(BTN_SETTINGS, 8, 8, 24, Lang.tr("saifunsmap.worldmap.btn.settings"), false));
 
         // Bottom-right vertical icon rail
         int bs = 22;
@@ -318,7 +323,7 @@ public class GuiWorldMap extends GuiScreen {
         double cyScreen = this.height * 0.5;
         List<Waypoint> wps = waypointManager.getWaypointsForDimension(mc.theWorld.provider.dimensionId);
         Waypoint best = null;
-        double bestDistSq = 9.5 * 9.5;
+        double bestDistSq = 8.0 * 8.0;
         for (int i = wps.size() - 1; i >= 0; i--) {
             Waypoint wp = wps.get(i);
             if (!wp.enabled) continue;
@@ -1053,16 +1058,17 @@ public class GuiWorldMap extends GuiScreen {
             double sy = worldToScreenY(wp.z + 0.5, cyScreen);
             if (sx < -20 || sx > this.width + 20 || sy < -20 || sy > this.height + 20) continue;
 
-            boolean hit = Math.abs(mouseX - sx) <= 8.5 && Math.abs(mouseY - sy) <= 8.5;
-            double iconSize = hit ? 17.0 : 14.0;
+            boolean hit = Math.abs(mouseX - sx) <= 7.0 && Math.abs(mouseY - sy) <= 7.0;
+            boolean hasNativeIcon = wp.customIconDrawer != null;
+            double iconSize = hasNativeIcon ? (hit ? 13.5 : 11.5) : (hit ? 12.5 : 10.0);
             float op = hit ? 1.0f : baseOpacity;
 
-            if (wp.customIconDrawer != null) {
+            if (hasNativeIcon) {
                 double h = iconSize * 0.5;
-                GLDraw.rect(sx - h - 1.5, sy - h - 1.5, sx + h + 1.5, sy + h + 1.5, GLDraw.withAlpha(0x070A0F, 0.92f * op));
-                GLDraw.rectOutline(sx - h - 0.7, sy - h - 0.7, sx + h + 0.7, sy + h + 0.7, 1.2, GLDraw.withAlpha(0xFACC15, op));
+                GLDraw.rect(sx - h - 1.3, sy - h - 1.3, sx + h + 1.3, sy + h + 1.3, GLDraw.withAlpha(0x070A0F, 0.92f * op));
+                GLDraw.rectOutline(sx - h - 0.6, sy - h - 0.6, sx + h + 0.6, sy + h + 0.6, 1.0, GLDraw.withAlpha(0xFACC15, op));
             } else if (hit) {
-                GLDraw.circle(sx, sy, iconSize * 0.56, 0.0, GLDraw.withAlpha(0xFFFFFF, 0.22f), 16);
+                GLDraw.circle(sx, sy, iconSize * 0.62, 0.0, GLDraw.withAlpha(0xFFFFFF, 0.22f), 16);
             }
             WaypointIconRenderer.drawWaypointIcon(wp, sx, sy, iconSize, op, wp.color);
 
@@ -1120,16 +1126,39 @@ public class GuiWorldMap extends GuiScreen {
                 GLDraw.rect(b.x, b.y, b.x + b.size, b.y + b.size, 0x881E293B);
             }
 
-            // Subtle dark drop-shadow behind vector icon so it's readable over bright snow & dark forest alike
-            drawVectorIcon(b.id, b.x + b.size * 0.5 + 0.8, b.y + b.size * 0.5 + 0.8, 0xAA070A0F);
-            int fg = b.active ? 0xFFFFFFFF : (hover ? 0xFFFFFFFF : 0xE6F1F5F9);
-            drawVectorIcon(b.id, b.x + b.size * 0.5, b.y + b.size * 0.5, fg);
+            if (b.id == BTN_SETTINGS && hasGtnhLogo()) {
+                double pad = hover ? 1.0 : 2.0;
+                GLDraw.ensureBlend();
+                GL11.glEnable(GL11.GL_TEXTURE_2D);
+                Minecraft.getMinecraft().getTextureManager().bindTexture(GTNH_LOGO_TEX);
+                GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+                GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+                GL11.glColor4f(1.0f, 1.0f, 1.0f, hover ? 1.0f : 0.92f);
+                GLDraw.texturedQuad(b.x + pad, b.y + pad, b.x + b.size - pad, b.y + b.size - pad, 0.0, 0.0, 1.0, 1.0);
+                GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+            } else {
+                // Subtle dark drop-shadow behind vector icon so it's readable over bright snow & dark forest alike
+                drawVectorIcon(b.id, b.x + b.size * 0.5 + 0.8, b.y + b.size * 0.5 + 0.8, 0xAA070A0F);
+                int fg = b.active ? 0xFFFFFFFF : (hover ? 0xFFFFFFFF : 0xE6F1F5F9);
+                drawVectorIcon(b.id, b.x + b.size * 0.5, b.y + b.size * 0.5, fg);
+            }
 
             if (hover) {
                 hoveredTip = b.tooltip;
             }
         }
         return hoveredTip;
+    }
+
+    private static boolean hasGtnhLogo() {
+        if (gtnhLogoAvailable == null) {
+            try {
+                gtnhLogoAvailable = Minecraft.getMinecraft().getResourceManager().getResource(GTNH_LOGO_TEX) != null;
+            } catch (Throwable ignored) {
+                gtnhLogoAvailable = false;
+            }
+        }
+        return gtnhLogoAvailable;
     }
 
     private void drawVectorIcon(int id, double cx, double cy, int color) {

@@ -138,20 +138,20 @@ public class WaypointWorldRenderer {
                     GL11.glDepthMask(false);
 
                     // Crisp pixel-art icon OR native GTNH Navigator icon (Ore Vein, Thaumcraft Node, etc.)
-                    double hs = (priority || focused) ? 8.2 : 7.2;
+                    double hs = (priority || focused) ? 6.6 : 5.4;
                     if (wp.customIconDrawer != null) {
                         int accent = (wp.type == Waypoint.Type.NAVIGATOR) ? 0xFFFACC15 : 0xFF38BDF8;
-                        GLDraw.rect(-hs - 2.2, -hs - 2.2, hs + 2.2, hs + 2.2, GLDraw.withAlpha(0x070A0F, 0.94f * alpha));
-                        GLDraw.rect(-hs - 1.2, -hs - 1.2, hs + 1.2, hs + 1.2, GLDraw.withAlpha(accent, alpha));
+                        GLDraw.rect(-hs - 2.0, -hs - 2.0, hs + 2.0, hs + 2.0, GLDraw.withAlpha(0x070A0F, 0.94f * alpha));
+                        GLDraw.rect(-hs - 1.1, -hs - 1.1, hs + 1.1, hs + 1.1, GLDraw.withAlpha(accent, alpha));
                         GLDraw.rect(-hs, -hs, hs, hs, GLDraw.withAlpha(0x0E131D, 0.92f * alpha));
                         WaypointIconRenderer.drawWaypointIcon(wp, 0.0, 0.0, hs * 2.0, alpha, badgeColor);
                     } else if (priority) {
                         int accent = (wp.type == Waypoint.Type.NAVIGATOR) ? 0xFFFACC15 : 0xFF38BDF8;
-                        GLDraw.rect(-hs - 1.6, -hs - 1.6, hs + 1.6, hs + 1.6, GLDraw.withAlpha(0x070A0F, 0.80f * alpha));
-                        GLDraw.rectOutline(-hs - 1.0, -hs - 1.0, hs + 1.0, hs + 1.0, 1.2, GLDraw.withAlpha(accent, alpha));
-                        WaypointIconRenderer.drawWaypointIcon(wp, 0.0, 0.0, hs * 2.1, alpha, badgeColor);
+                        GLDraw.rect(-hs - 1.5, -hs - 1.5, hs + 1.5, hs + 1.5, GLDraw.withAlpha(0x070A0F, 0.80f * alpha));
+                        GLDraw.rectOutline(-hs - 0.9, -hs - 0.9, hs + 0.9, hs + 0.9, 1.1, GLDraw.withAlpha(accent, alpha));
+                        WaypointIconRenderer.drawWaypointIcon(wp, 0.0, 0.0, hs * 2.0, alpha, badgeColor);
                     } else {
-                        WaypointIconRenderer.drawWaypointIcon(wp, 0.0, 0.0, hs * 2.15, alpha, badgeColor);
+                        WaypointIconRenderer.drawWaypointIcon(wp, 0.0, 0.0, hs * 2.0, alpha, badgeColor);
                     }
 
                     if (showFullLabel) {
