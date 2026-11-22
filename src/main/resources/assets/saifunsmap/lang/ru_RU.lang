@@ -166,10 +166,10 @@ saifunsmap.icon.dungeon=Данж / Мечи
 saifunsmap.icon.portal=Портал
 saifunsmap.icon.village=Деревня / Флаг
 saifunsmap.icon.star=Звезда / Важное
-saifunsmap.icon.chest=Сундук / Лут
-saifunsmap.icon.farm=Ферма / Росток
-saifunsmap.icon.boss=Босс / Корона
-saifunsmap.icon.crystal=Кристалл / Магия
+saifunsmap.icon.chest=Золото / Лут
+saifunsmap.icon.farm=Еда / Ферма
+saifunsmap.icon.boss=Броня / Босс
+saifunsmap.icon.crystal=Алмаз / Редкое
 saifunsmap.icon.death=Смерть / Череп
 
 saifunsmap.chat.cave_mode=Режим пещер: %s

@@ -9,6 +9,7 @@ import com.saifun.map.waypoints.Waypoint;
 import com.saifun.map.waypoints.WaypointManager;
 import cpw.mods.fml.common.Loader;
 import cpw.mods.fml.common.network.FMLEmbeddedChannel;
+import cpw.mods.fml.common.network.FMLIndexedMessageToMessageCodec;
 import cpw.mods.fml.common.network.NetworkRegistry;
 import cpw.mods.fml.common.network.simpleimpl.SimpleIndexedCodec;
 import cpw.mods.fml.common.network.simpleimpl.SimpleNetworkWrapper;
@@ -60,6 +61,8 @@ public final class ShareWhereIAmBridge {
     private static Field fldMarkPlayerName;
     private static Field fldMarkJson;
     private static KeyBinding shareKeyBinding;
+    private static WaypointManager cachedWaypointManager;
+    private static boolean pipelineVerified = false;
     private static volatile Waypoint pendingFallbackWp = null;
     private static volatile long pendingFallbackAtMs = 0L;
 
@@ -124,17 +127,8 @@ public final class ShareWhereIAmBridge {
                 }
             }
 
-            // Tap the client-side Netty pipeline right after SimpleIndexedCodec (AFTER NetworkLoader.load!)
-            FMLEmbeddedChannel channel = NetworkRegistry.INSTANCE.getChannel(CHANNEL_NAME, Side.CLIENT);
-            if (channel != null && channel.pipeline().get(HANDLER_NAME) == null) {
-                String codecName = channel.findChannelHandlerNameForType(SimpleIndexedCodec.class);
-                ChannelHandler interceptor = new IncomingShareInterceptor(waypointManager);
-                if (codecName != null) {
-                    channel.pipeline().addAfter(codecName, HANDLER_NAME, interceptor);
-                } else {
-                    channel.pipeline().addLast(HANDLER_NAME, interceptor);
-                }
-            }
+            cachedWaypointManager = waypointManager;
+            ensurePipelineHooked();
 
             available = network != null;
             SaifunsMapMod.LOG.info("ShareWhereIAm bridge initialized (channel hook active, JourneyMap loaded: {}).", journeyMapLoaded);
@@ -181,7 +175,7 @@ public final class ShareWhereIAmBridge {
             Object pw = ctorPlayerWaypoint.newInstance(player, sw);
             Object msg = ctorMsgShare.newInstance(pw, extraInfo != null ? extraInfo : "");
             pendingFallbackWp = wp;
-            pendingFallbackAtMs = System.currentTimeMillis() + 1200L;
+            pendingFallbackAtMs = System.currentTimeMillis() + 650L;
             network.sendToServer((cpw.mods.fml.common.network.simpleimpl.IMessage) msg);
             return true;
         } catch (Throwable t) {
@@ -191,12 +185,43 @@ public final class ShareWhereIAmBridge {
         }
     }
 
+    private static void ensurePipelineHooked() {
+        if (cachedWaypointManager == null) return;
+        try {
+            FMLEmbeddedChannel channel = NetworkRegistry.INSTANCE.getChannel(CHANNEL_NAME, Side.CLIENT);
+            if (channel == null) return;
+            String codecName = null;
+            for (java.util.Map.Entry<String, ChannelHandler> e : channel.pipeline()) {
+                if (e.getValue() instanceof FMLIndexedMessageToMessageCodec || e.getValue() instanceof SimpleIndexedCodec) {
+                    codecName = e.getKey();
+                    break;
+                }
+            }
+            if (channel.pipeline().get(HANDLER_NAME) != null) {
+                channel.pipeline().remove(HANDLER_NAME);
+            }
+            ChannelHandler interceptor = new IncomingShareInterceptor(cachedWaypointManager);
+            if (codecName != null) {
+                channel.pipeline().addAfter(codecName, HANDLER_NAME, interceptor);
+            } else {
+                channel.pipeline().addFirst(HANDLER_NAME, interceptor);
+            }
+        } catch (Throwable t) {
+            SaifunsMapMod.LOG.debug("ShareWhereIAm pipeline hook retry failed: {}", t.toString());
+        }
+    }
+
     /**
-     * Called each client tick: if a multiplayer server did not echo back MessageShareWaypoint
-     * within 1.2s (e.g., server has JourneyMap disabled so ShareWhereIAm server handler wasn't registered),
-     * automatically fall back to plain chat format (which also generates clickable buttons locally!).
+     * Called each client tick:
+     * 1. Ensures our Netty interceptor sits immediately after the codec (even if ShareWhereIAm loaded after us!).
+     * 2. If a server does not echo back MessageShareWaypoint within 0.65s, cleanly falls back to standard chat
+     *    format (which ClientEventHandler immediately transforms in-place into a single clickable card!).
      */
     public static void onClientTick() {
+        if (available && !pipelineVerified) {
+            pipelineVerified = true;
+            ensurePipelineHooked();
+        }
         Waypoint fb = pendingFallbackWp;
         if (fb != null && System.currentTimeMillis() >= pendingFallbackAtMs) {
             pendingFallbackWp = null;

@@ -166,10 +166,10 @@ saifunsmap.icon.dungeon=Dungeon / Combat
 saifunsmap.icon.portal=Portal
 saifunsmap.icon.village=Village / Flag
 saifunsmap.icon.star=Star / Favorite
-saifunsmap.icon.chest=Chest / Loot
-saifunsmap.icon.farm=Farm / Nature
-saifunsmap.icon.boss=Boss / Crown
-saifunsmap.icon.crystal=Crystal / Magic
+saifunsmap.icon.chest=Gold / Loot
+saifunsmap.icon.farm=Food / Farm
+saifunsmap.icon.boss=Armor / Boss
+saifunsmap.icon.crystal=Diamond / Rare
 saifunsmap.icon.death=Death / Skull
 
 saifunsmap.chat.cave_mode=Cave Mode: %s

@@ -112,13 +112,26 @@ public class ClientEventHandler {
         Minecraft mc = Minecraft.getMinecraft();
         if (mc.theWorld == null || mc.thePlayer == null) return;
 
-        // Parse plain-text shared JourneyMap waypoints from chat and present clickable [Save] [Edit] [Beacon] buttons!
+        // Replace plain-text shared JourneyMap waypoints in-place with a single clean clickable
+        // [Saifun's Map] <sender> Name (x, y, z) [Dim] [Save] [Edit] [Beacon] card (zero duplicates!)
         String raw = event.message.getUnformattedText();
         if (raw.startsWith("[Saifun's Map]")) return;
         Waypoint shared = WaypointManager.tryParseChatWaypoint(raw, mc.theWorld.provider.dimensionId);
         if (shared != null) {
-            mc.func_152344_a(() -> WaypointManager.postClickableShareChat(null, shared, null));
+            String sender = extractChatSender(raw);
+            event.message = WaypointManager.buildClickableShareComponent(sender, shared, null);
         }
+    }
+
+    private static String extractChatSender(String raw) {
+        if (raw == null) return null;
+        String clean = raw.replaceAll("\u00a7[0-9a-fk-or]", "").trim();
+        int lt = clean.indexOf('<');
+        int gt = clean.indexOf('>', lt + 1);
+        if (lt >= 0 && gt > lt + 1 && gt < 36) {
+            return clean.substring(lt + 1, gt).trim();
+        }
+        return null;
     }
 
     @SubscribeEvent

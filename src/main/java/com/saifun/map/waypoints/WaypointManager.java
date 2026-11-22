@@ -65,9 +65,10 @@ public class WaypointManager {
     private static final Type LIST_TYPE = new TypeToken<List<Waypoint>>() {}.getType();
     private static final Random RANDOM = new Random();
 
-    // Parses standard GTNH JourneyMap shared waypoints: [name:"Base", x:100, y:64, z:-200, dim:0]
+    // Parses standard GTNH JourneyMap shared waypoints (including commas/parens inside quotes):
+    // e.g. [name:"Death (-36, -16)", x:-36, y:42, z:-16, dim:-1] or [name:Base, x:100, y:64, z:-200, dim:0]
     private static final Pattern JM_CHAT_PATTERN = Pattern.compile(
-        "\\[name:\"?([^\",\\]]+)\"?,\\s*x:(-?\\d+),\\s*y:(-?\\d+),\\s*z:(-?\\d+)(?:,\\s*dim:(-?\\d+))?\\]"
+        "\\[name:(?:\"([^\"]+)\"|([^,\\]]+)),\\s*x:(-?\\d+),\\s*y:(-?\\d+),\\s*z:(-?\\d+)(?:,\\s*dim:(-?\\d+))?\\]"
     );
 
     private final MapWorldCache worldCache;
@@ -416,33 +417,20 @@ public class WaypointManager {
     }
 
     /**
-     * Posts a clickable chat card with [Save], [Edit], and [Beacon] actions for a shared waypoint.
+     * Builds a single crisp clickable chat card with [Save], [Edit], and [Beacon] actions for a shared waypoint.
      */
-    public static void postClickableShareChat(String sender, Waypoint wp, String extraInfo) {
-        Minecraft mc = Minecraft.getMinecraft();
-        EntityClientPlayerMP player = mc.thePlayer;
-        if (player == null || wp == null) return;
-
+    public static IChatComponent buildClickableShareComponent(String sender, Waypoint wp, String extraInfo) {
         String payload = encodeSharePayload(wp);
 
-        if (sender != null && !sender.trim().isEmpty()) {
-            ChatComponentText header = new ChatComponentText("");
-            ChatComponentText tag = new ChatComponentText("[Saifun's Map]");
-            tag.setChatStyle(new ChatStyle().setColor(EnumChatFormatting.AQUA));
-            header.appendSibling(tag);
-            header.appendText(" ");
-            ChatComponentText who = new ChatComponentText(sender);
-            who.setChatStyle(new ChatStyle().setColor(EnumChatFormatting.GREEN));
-            header.appendSibling(who);
-            header.appendText(" " + Lang.tr("saifunsmap.chat.shared_header"));
-            player.addChatMessage(header);
-        }
-
         ChatComponentText line = new ChatComponentText("");
-        if (sender == null || sender.trim().isEmpty()) {
-            ChatComponentText tag = new ChatComponentText("[Saifun's Map] ");
-            tag.setChatStyle(new ChatStyle().setColor(EnumChatFormatting.AQUA));
-            line.appendSibling(tag);
+        ChatComponentText tag = new ChatComponentText("[Saifun's Map] ");
+        tag.setChatStyle(new ChatStyle().setColor(EnumChatFormatting.AQUA));
+        line.appendSibling(tag);
+
+        if (sender != null && !sender.trim().isEmpty()) {
+            ChatComponentText who = new ChatComponentText("<" + sender.trim() + "> ");
+            who.setChatStyle(new ChatStyle().setColor(EnumChatFormatting.GREEN));
+            line.appendSibling(who);
         }
 
         ChatComponentText nameComp = new ChatComponentText(wp.name);
@@ -475,13 +463,22 @@ public class WaypointManager {
             "/smap beacon " + payload
         ));
 
-        player.addChatMessage(line);
-
         if (extraInfo != null && !extraInfo.trim().isEmpty()) {
-            ChatComponentText extraComp = new ChatComponentText("  " + extraInfo.trim());
+            ChatComponentText extraComp = new ChatComponentText(" [" + extraInfo.trim() + "]");
             extraComp.setChatStyle(new ChatStyle().setColor(EnumChatFormatting.GRAY));
-            player.addChatMessage(extraComp);
+            line.appendSibling(extraComp);
         }
+        return line;
+    }
+
+    /**
+     * Posts a clickable chat card with [Save], [Edit], and [Beacon] actions for a shared waypoint.
+     */
+    public static void postClickableShareChat(String sender, Waypoint wp, String extraInfo) {
+        Minecraft mc = Minecraft.getMinecraft();
+        EntityClientPlayerMP player = mc.thePlayer;
+        if (player == null || wp == null) return;
+        player.addChatMessage(buildClickableShareComponent(sender, wp, extraInfo));
     }
 
     private static IChatComponent makeChatButton(String label, EnumChatFormatting color, String hoverText, String command) {
@@ -504,11 +501,12 @@ public class WaypointManager {
 
         Matcher jm = JM_CHAT_PATTERN.matcher(clean);
         if (jm.find()) {
-            String name = jm.group(1).trim();
-            int x = Integer.parseInt(jm.group(2));
-            int y = Integer.parseInt(jm.group(3));
-            int z = Integer.parseInt(jm.group(4));
-            int dim = jm.group(5) != null ? Integer.parseInt(jm.group(5)) : currentDim;
+            String rawName = jm.group(1) != null ? jm.group(1) : jm.group(2);
+            String name = rawName != null ? rawName.trim() : "Waypoint";
+            int x = Integer.parseInt(jm.group(3));
+            int y = Integer.parseInt(jm.group(4));
+            int z = Integer.parseInt(jm.group(5));
+            int dim = jm.group(6) != null ? Integer.parseInt(jm.group(6)) : currentDim;
             return new Waypoint(name, null, x, y, z, dim, pickRandomColor(), Waypoint.Type.NORMAL);
         }
         return null;
