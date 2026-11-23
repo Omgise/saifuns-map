@@ -4,6 +4,7 @@ import com.saifun.map.waypoints.Waypoint;
 import net.minecraft.client.Minecraft;
 import net.minecraft.util.ResourceLocation;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL12;
 
 import java.util.EnumMap;
 import java.util.EnumSet;
@@ -11,12 +12,12 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Crisp pixel-art waypoint icon renderer backed by MIT-licensed Minecraft-style PNG textures
- * (assets/saifunsmap/textures/waypoints/*.png, GL_NEAREST).
- * - Monochrome white-with-black-outline icons (Pin, Home, Star, Death Skull) dynamically tint
- *   to the waypoint's custom color while preserving their crisp black 1px pixel outline.
- * - Full-color Minecraft-style POI icons (Pickaxe, Sword, Portal, Village, Gold, Food, Armor, Diamond)
- *   render in their authentic palette without color distortion.
+ * Crisp 11x11 (9x9 + 1px dark outline) Minecraft/GTNH pixel-art waypoint icon renderer
+ * (assets/saifunsmap/textures/waypoints/*.png, GL_NEAREST + GL_CLAMP_TO_EDGE).
+ * - Universal map markers (Pin, Village/Flag, Star, Death Skull) dynamically tint to any custom
+ *   waypoint color while preserving crisp dark pixel borders.
+ * - Authentic 2-3 color Minecraft/GTNH POI icons (Home, Pickaxe, Sword, Portal, Chest, Farm,
+ *   Oil, Power, Machine, Thaumcraft, Crystal, Tree) render in clean native palettes.
  * - Tracked GTNH Navigator waypoints (Ore Veins, Thaumcraft Nodes, etc.) delegate to their
  *   exact fullscreen overlay icon via Waypoint.customIconDrawer.
  */
@@ -39,9 +40,13 @@ public final class WaypointIconRenderer {
         TEXTURES.put(Waypoint.IconType.STAR, new ResourceLocation("saifunsmap", "textures/waypoints/star.png"));
         TEXTURES.put(Waypoint.IconType.CHEST, new ResourceLocation("saifunsmap", "textures/waypoints/chest.png"));
         TEXTURES.put(Waypoint.IconType.FARM, new ResourceLocation("saifunsmap", "textures/waypoints/farm.png"));
-        TEXTURES.put(Waypoint.IconType.BOSS, new ResourceLocation("saifunsmap", "textures/waypoints/boss.png"));
-        TEXTURES.put(Waypoint.IconType.CRYSTAL, new ResourceLocation("saifunsmap", "textures/waypoints/crystal.png"));
         TEXTURES.put(Waypoint.IconType.DEATH, new ResourceLocation("saifunsmap", "textures/waypoints/death.png"));
+        TEXTURES.put(Waypoint.IconType.OIL, new ResourceLocation("saifunsmap", "textures/waypoints/oil.png"));
+        TEXTURES.put(Waypoint.IconType.POWER, new ResourceLocation("saifunsmap", "textures/waypoints/power.png"));
+        TEXTURES.put(Waypoint.IconType.MACHINE, new ResourceLocation("saifunsmap", "textures/waypoints/machine.png"));
+        TEXTURES.put(Waypoint.IconType.THAUM, new ResourceLocation("saifunsmap", "textures/waypoints/thaum.png"));
+        TEXTURES.put(Waypoint.IconType.CRYSTAL, new ResourceLocation("saifunsmap", "textures/waypoints/crystal.png"));
+        TEXTURES.put(Waypoint.IconType.TREE, new ResourceLocation("saifunsmap", "textures/waypoints/tree.png"));
     }
 
     private WaypointIconRenderer() {}
@@ -49,7 +54,7 @@ public final class WaypointIconRenderer {
     public static boolean isTintable(Waypoint.IconType type) {
         if (type == null) return true;
         return type == Waypoint.IconType.PIN
-            || type == Waypoint.IconType.HOME
+            || type == Waypoint.IconType.VILLAGE
             || type == Waypoint.IconType.STAR
             || type == Waypoint.IconType.DEATH;
     }
@@ -104,6 +109,8 @@ public final class WaypointIconRenderer {
         if (FILTER_INITIALIZED.add(type)) {
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
         }
 
         if (isTintable(type)) {

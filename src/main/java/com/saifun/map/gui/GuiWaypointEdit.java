@@ -22,7 +22,12 @@ import java.util.List;
 public class GuiWaypointEdit extends GuiScreen {
 
     private static final int PANEL_W = 296;
-    private static final int PANEL_H = 268;
+    private static final int PANEL_H = 292;
+    private static final int ICON_COLS = 8;
+    private static final int ICON_CELL_W = 32;
+    private static final int ICON_CELL_H = 21;
+    private static final int ICON_GAP_X = 2;
+    private static final int ICON_GAP_Y = 3;
 
     private final GuiScreen parent;
     private final WaypointManager manager;
@@ -123,16 +128,16 @@ public class GuiWaypointEdit extends GuiScreen {
         zField = new GuiTextField(this.fontRendererObj, panelX + 198, panelY + 60, 86, 16);
         zField.setText(prevZ);
 
-        colorPicker = new ColorPickerWidget(panelX + 12, panelY + 120 + gOff, 92, 14, currentColor);
+        colorPicker = new ColorPickerWidget(panelX + 12, panelY + 144 + gOff, 92, 14, currentColor);
 
-        hexField = new GuiTextField(this.fontRendererObj, panelX + 134, panelY + 148 + gOff, 74, 16);
+        hexField = new GuiTextField(this.fontRendererObj, panelX + 134, panelY + 172 + gOff, 74, 16);
         hexField.setMaxStringLength(7);
         hexField.setText(colorPicker.getHexString());
 
-        this.buttonList.add(new ModernButton(1, panelX + 134, panelY + 194 + gOff, 73, 18, Lang.tr("saifunsmap.wpedit.enabled", Lang.onOff(enabled))));
-        this.buttonList.add(new ModernButton(2, panelX + 211, panelY + 194 + gOff, 73, 18, Lang.tr("saifunsmap.wpedit.random")));
-        this.buttonList.add(new ModernButton(10, panelX + 12, panelY + 222 + gOff, 132, 20, Lang.tr("saifunsmap.common.save")).setAccent(true));
-        this.buttonList.add(new ModernButton(11, panelX + 152, panelY + 222 + gOff, 132, 20, Lang.tr("saifunsmap.common.cancel")));
+        this.buttonList.add(new ModernButton(1, panelX + 134, panelY + 218 + gOff, 73, 18, Lang.tr("saifunsmap.wpedit.enabled", Lang.onOff(enabled))));
+        this.buttonList.add(new ModernButton(2, panelX + 211, panelY + 218 + gOff, 73, 18, Lang.tr("saifunsmap.wpedit.random")));
+        this.buttonList.add(new ModernButton(10, panelX + 12, panelY + 246 + gOff, 132, 20, Lang.tr("saifunsmap.common.save")).setAccent(true));
+        this.buttonList.add(new ModernButton(11, panelX + 152, panelY + 246 + gOff, 132, 20, Lang.tr("saifunsmap.common.cancel")));
     }
 
     @Override
@@ -280,14 +285,16 @@ public class GuiWaypointEdit extends GuiScreen {
             }
         }
 
-        // 12-icon pixel-art selector strip
+        // 16-icon pixel-art selector grid (2 rows x 8 columns)
         Waypoint.IconType[] icons = Waypoint.IconType.values();
-        int iconBaseX = panelX + 12;
+        int iconBaseX = panelX + 13;
         int iconBaseY = panelY + 91 + gOff;
-        int iconCell = 22;
         for (int i = 0; i < icons.length; i++) {
-            int ix = iconBaseX + i * 23;
-            if (mouseX >= ix && mouseX <= ix + iconCell && mouseY >= iconBaseY && mouseY <= iconBaseY + iconCell) {
+            int col = i % ICON_COLS;
+            int row = i / ICON_COLS;
+            int ix = iconBaseX + col * (ICON_CELL_W + ICON_GAP_X);
+            int iy = iconBaseY + row * (ICON_CELL_H + ICON_GAP_Y);
+            if (mouseX >= ix && mouseX <= ix + ICON_CELL_W && mouseY >= iy && mouseY <= iy + ICON_CELL_H) {
                 currentIcon = icons[i];
                 return;
             }
@@ -295,7 +302,7 @@ public class GuiWaypointEdit extends GuiScreen {
 
         // Quick 2x6 preset color swatches on the right side
         int swatchBaseX = panelX + 134;
-        int swatchBaseY = panelY + 170 + gOff;
+        int swatchBaseY = panelY + 194 + gOff;
         for (int i = 0; i < WaypointManager.PALETTE.length; i++) {
             int col = i % 6;
             int row = i / 6;
@@ -390,22 +397,24 @@ public class GuiWaypointEdit extends GuiScreen {
             }
         }
 
-        // 12-icon pixel-art selector strip
+        // 16-icon pixel-art selector grid (2 rows x 8 columns)
         Waypoint.IconType[] icons = Waypoint.IconType.values();
-        int iconBaseX = panelX + 12;
+        int iconBaseX = panelX + 13;
         int iconBaseY = panelY + 91 + gOff;
-        int iconCell = 22;
         String hoveredIconName = null;
         for (int i = 0; i < icons.length; i++) {
             Waypoint.IconType it = icons[i];
-            int ix = iconBaseX + i * 23;
+            int col = i % ICON_COLS;
+            int row = i / ICON_COLS;
+            int ix = iconBaseX + col * (ICON_CELL_W + ICON_GAP_X);
+            int iy = iconBaseY + row * (ICON_CELL_H + ICON_GAP_Y);
             boolean sel = (it == currentIcon);
-            boolean hov = mouseX >= ix && mouseX <= ix + iconCell && mouseY >= iconBaseY && mouseY <= iconBaseY + iconCell;
+            boolean hov = mouseX >= ix && mouseX <= ix + ICON_CELL_W && mouseY >= iy && mouseY <= iy + ICON_CELL_H;
             int bg = sel ? 0xDD1D4ED8 : (hov ? 0xBB1E293B : 0x88111622);
             int border = sel ? 0xFF93C5FD : (hov ? 0xAA64748B : 0x55334155);
-            GLDraw.rect(ix, iconBaseY, ix + iconCell, iconBaseY + iconCell, bg);
-            GLDraw.rectOutline(ix, iconBaseY, ix + iconCell, iconBaseY + iconCell, 1.0, border);
-            WaypointIconRenderer.drawIcon(it, ix + iconCell * 0.5, iconBaseY + iconCell * 0.5, 16.0, currentColor, 1.0f);
+            GLDraw.rect(ix, iy, ix + ICON_CELL_W, iy + ICON_CELL_H, bg);
+            GLDraw.rectOutline(ix, iy, ix + ICON_CELL_W, iy + ICON_CELL_H, 1.0, border);
+            WaypointIconRenderer.drawIcon(it, ix + ICON_CELL_W * 0.5, iy + ICON_CELL_H * 0.5, 14.0, currentColor, 1.0f);
             if (hov) {
                 hoveredIconName = Lang.tr(it.langKey);
             }
@@ -416,10 +425,10 @@ public class GuiWaypointEdit extends GuiScreen {
 
         // Live waypoint icon preview + Hex code input
         int prevX = panelX + 134;
-        int prevY = panelY + 120 + gOff;
+        int prevY = panelY + 144 + gOff;
         GLDraw.rect(prevX, prevY, prevX + 24, prevY + 24, 0xFF0A0D12);
         GLDraw.rectOutline(prevX, prevY, prevX + 24, prevY + 24, 1.0, 0x88334155);
-        WaypointIconRenderer.drawIcon(currentIcon, prevX + 12.0, prevY + 12.0, 18.0, currentColor, 1.0f);
+        WaypointIconRenderer.drawIcon(currentIcon, prevX + 12.0, prevY + 12.0, 16.0, currentColor, 1.0f);
 
         this.fontRendererObj.drawStringWithShadow("Color Hex", prevX + 30, prevY + 4, 0xFF94A3B8);
         this.fontRendererObj.drawStringWithShadow(colorPicker.getHexString(), prevX + 30, prevY + 14, 0xFFE2E8F0);
@@ -427,7 +436,7 @@ public class GuiWaypointEdit extends GuiScreen {
 
         // Compact 2x6 quick preset swatches
         int swatchBaseX = panelX + 134;
-        int swatchBaseY = panelY + 170 + gOff;
+        int swatchBaseY = panelY + 194 + gOff;
         for (int i = 0; i < WaypointManager.PALETTE.length; i++) {
             int col = i % 6;
             int row = i / 6;

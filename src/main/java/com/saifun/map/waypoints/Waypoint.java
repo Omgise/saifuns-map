@@ -27,9 +27,13 @@ public class Waypoint {
         STAR("star"),
         CHEST("chest"),
         FARM("farm"),
-        BOSS("boss"),
+        DEATH("death"),
+        OIL("oil"),
+        POWER("power"),
+        MACHINE("machine"),
+        THAUM("thaum"),
         CRYSTAL("crystal"),
-        DEATH("death");
+        TREE("tree");
 
         public final String langKey;
 
