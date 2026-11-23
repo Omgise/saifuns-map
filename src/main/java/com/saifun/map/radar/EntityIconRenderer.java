@@ -107,7 +107,18 @@ public final class EntityIconRenderer {
     private static final Map<Integer, ResourceLocation> ENTITY_ID_TEXTURE_CACHE = new ConcurrentHashMap<>();
     private static final Map<String, ResourceLocation> CUSTOM_ICON_CACHE = new ConcurrentHashMap<>();
     private static final Map<String, ResourceLocation> REMOTE_SKIN_CACHE = new ConcurrentHashMap<>();
+    private static final Map<ResourceLocation, SkinFormatEntry> SKIN_FORMAT_CACHE = new ConcurrentHashMap<>();
     private static final ResourceLocation MISSING_ICON = new ResourceLocation("saifunsmap", "__missing__");
+
+    private static final class SkinFormatEntry {
+        final boolean isSquare64;
+        final long checkedAtMs;
+
+        SkinFormatEntry(boolean isSquare64, long checkedAtMs) {
+            this.isSquare64 = isSquare64;
+            this.checkedAtMs = checkedAtMs;
+        }
+    }
 
     private EntityIconRenderer() {}
 
@@ -116,6 +127,7 @@ public final class EntityIconRenderer {
         CLASS_TEXTURE_CACHE.clear();
         ENTITY_ID_TEXTURE_CACHE.clear();
         REMOTE_SKIN_CACHE.clear();
+        SKIN_FORMAT_CACHE.clear();
     }
 
     public static void clearEntityIdCache() {
@@ -222,12 +234,36 @@ public final class EntityIconRenderer {
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glColor4f(1.0f, 1.0f, 1.0f, alpha);
         Minecraft.getMinecraft().getTextureManager().bindTexture(skin);
-        GLDraw.texturedQuad(-half, -half, half, half, UV_PLAYER_32.u1, UV_PLAYER_32.v1, UV_PLAYER_32.u2, UV_PLAYER_32.v2);
+        HeadUV uv = resolvePlayerSkinUV(skin);
+        GLDraw.texturedQuad(-half, -half, half, half, uv.u1, uv.v1, uv.u2, uv.v2);
         GLDraw.texturedQuad(
             -half - 0.25, -half - 0.25, half + 0.25, half + 0.25,
-            UV_PLAYER_32.ou1, UV_PLAYER_32.ov1, UV_PLAYER_32.ou2, UV_PLAYER_32.ov2
+            uv.ou1, uv.ov1, uv.ou2, uv.ov2
         );
         GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    }
+
+    /**
+     * Detects whether the currently bound player skin texture is modern square 64x64 (or HD 128x128+,
+     * used by SkinPort / CustomSkinLoader / Mojang 1.8+ skins) or legacy 1.7.10 64x32 (2:1 aspect).
+     * Re-checks legacy entries every 2s in case an async ThreadDownloadImageData finishes loading.
+     */
+    private static HeadUV resolvePlayerSkinUV(ResourceLocation skin) {
+        long now = System.currentTimeMillis();
+        SkinFormatEntry cached = SKIN_FORMAT_CACHE.get(skin);
+        if (cached != null && (cached.isSquare64 || (now - cached.checkedAtMs) < 2000L)) {
+            return cached.isSquare64 ? UV_BIPED_64 : UV_PLAYER_32;
+        }
+        int texW = GL11.glGetTexLevelParameteri(GL11.GL_TEXTURE_2D, 0, GL11.GL_TEXTURE_WIDTH);
+        int texH = GL11.glGetTexLevelParameteri(GL11.GL_TEXTURE_2D, 0, GL11.GL_TEXTURE_HEIGHT);
+        boolean isSquare = texW > 0 && texH > 0 && texW == texH;
+        if (texW > 0 && texH > 0) {
+            if (SKIN_FORMAT_CACHE.size() > 256) {
+                SKIN_FORMAT_CACHE.clear();
+            }
+            SKIN_FORMAT_CACHE.put(skin, new SkinFormatEntry(isSquare, now));
+        }
+        return isSquare ? UV_BIPED_64 : UV_PLAYER_32;
     }
 
     private static boolean renderMobHead(RadarEntity re, float half, float alpha) {
