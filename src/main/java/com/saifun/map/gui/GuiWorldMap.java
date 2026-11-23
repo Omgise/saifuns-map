@@ -759,6 +759,7 @@ public class GuiWorldMap extends GuiScreen {
         World world = mc.theWorld;
         EntityClientPlayerMP player = mc.thePlayer;
         if (world == null || player == null) return;
+        worldCache.onRenderTick();
 
         long now = System.nanoTime();
         double dt = lastFrameNanos == 0L ? 0.016 : Math.min(0.08, (now - lastFrameNanos) * 1e-9);

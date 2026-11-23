@@ -88,6 +88,7 @@ public class ClientEventHandler {
             Minecraft.getMinecraft().displayGuiScreen(next);
         }
         chunkScanner.onClientTick();
+        worldCache.onClientTickMaintenance();
         waypointManager.onClientTick();
         ShareWhereIAmBridge.onClientTick();
     }

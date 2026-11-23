@@ -106,6 +106,7 @@ public final class EntityIconRenderer {
     private static final Map<Class<?>, ResourceLocation> CLASS_TEXTURE_CACHE = new ConcurrentHashMap<>();
     private static final Map<Integer, ResourceLocation> ENTITY_ID_TEXTURE_CACHE = new ConcurrentHashMap<>();
     private static final Map<String, ResourceLocation> CUSTOM_ICON_CACHE = new ConcurrentHashMap<>();
+    private static final Map<String, ResourceLocation> REMOTE_SKIN_CACHE = new ConcurrentHashMap<>();
     private static final ResourceLocation MISSING_ICON = new ResourceLocation("saifunsmap", "__missing__");
 
     private EntityIconRenderer() {}
@@ -114,6 +115,7 @@ public final class EntityIconRenderer {
         CUSTOM_ICON_CACHE.clear();
         CLASS_TEXTURE_CACHE.clear();
         ENTITY_ID_TEXTURE_CACHE.clear();
+        REMOTE_SKIN_CACHE.clear();
     }
 
     public static void clearEntityIdCache() {
@@ -198,7 +200,16 @@ public final class EntityIconRenderer {
             skin = ((AbstractClientPlayer) re.entity).getLocationSkin();
         }
         if (skin == null && re.name != null) {
-            skin = AbstractClientPlayer.getLocationSkin(re.name);
+            skin = REMOTE_SKIN_CACHE.get(re.name);
+            if (skin == null) {
+                if (REMOTE_SKIN_CACHE.size() > 256) {
+                    REMOTE_SKIN_CACHE.clear();
+                }
+                skin = AbstractClientPlayer.getLocationSkin(re.name);
+                if (skin != null) {
+                    REMOTE_SKIN_CACHE.put(re.name, skin);
+                }
+            }
         }
         if (skin == null) {
             skin = AbstractClientPlayer.locationStevePng;

@@ -27,6 +27,7 @@ import java.util.Set;
 public class ChunkScanner {
 
     private static final int SCAN_RADIUS_CHUNKS = 9;
+    private static final int MAX_QUEUE_SIZE = 512;
     private static final long RESCAN_NEAR_MS = 2800L;
     private static final long RESCAN_FAR_MS = 12000L;
     private static final ThreadLocal<Random> SLIME_RNG = ThreadLocal.withInitial(Random::new);
@@ -39,6 +40,8 @@ public class ChunkScanner {
     private boolean activeCaveMode = false;
     private boolean lastOnNetherRoof = false;
     private int lastCaveAnchorY = 64;
+    private int lastPlayerCx = Integer.MIN_VALUE;
+    private int lastPlayerCz = Integer.MIN_VALUE;
     private int tickCounter = 0;
     private int burstScanTicks = 0;
     private int forceCaveScanTicks = 0;
@@ -70,11 +73,16 @@ public class ChunkScanner {
         lastScanTime.clear();
         activeCaveMode = false;
         lastOnNetherRoof = false;
+        lastPlayerCx = Integer.MIN_VALUE;
+        lastPlayerCz = Integer.MIN_VALUE;
         burstScanTicks = 0;
         forceCaveScanTicks = 0;
     }
 
     public void enqueueChunk(int chunkX, int chunkZ) {
+        if (priorityQueue.size() >= MAX_QUEUE_SIZE) {
+            return;
+        }
         long key = packChunk(chunkX, chunkZ);
         if (queuedKeys.add(key)) {
             priorityQueue.addLast(key);
@@ -92,6 +100,15 @@ public class ChunkScanner {
 
         int pcxNow = MathHelper.floor_double(player.posX) >> 4;
         int pczNow = MathHelper.floor_double(player.posZ) >> 4;
+        // On long teleport, discard stale queued chunks from the old location immediately
+        if (lastPlayerCx != Integer.MIN_VALUE
+            && (Math.abs(pcxNow - lastPlayerCx) > 24 || Math.abs(pczNow - lastPlayerCz) > 24)) {
+            priorityQueue.clear();
+            queuedKeys.clear();
+            burstScanTicks = Math.max(burstScanTicks, 12);
+        }
+        lastPlayerCx = pcxNow;
+        lastPlayerCz = pczNow;
         Chunk playerChunk = world.getChunkProvider().chunkExists(pcxNow, pczNow)
             ? world.getChunkFromChunkCoords(pcxNow, pczNow)
             : null;

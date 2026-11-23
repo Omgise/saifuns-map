@@ -48,9 +48,9 @@ public class MapRegion {
     private final int[] surfaceShadedArgb = new int[PIXEL_COUNT];
 
     // Cave buffers (allocated lazily on first cave data to save ~2.5 MB RAM per overworld region!)
-    private int[] caveBaseRgb = null;
-    private short[] caveHeight = null;
-    private int[] caveShadedArgb = null;
+    private volatile int[] caveBaseRgb = null;
+    private volatile short[] caveHeight = null;
+    private volatile int[] caveShadedArgb = null;
 
     // Fine-grained lock ONLY for BitSet dirty flags so the GL render thread NEVER stalls on background shading!
     private final Object dirtyLock = new Object();
@@ -66,6 +66,9 @@ public class MapRegion {
 
     private int surfaceTextureId = 0;
     private int caveTextureId = 0;
+    private boolean lastSurfaceLinear = false;
+    private boolean lastCaveLinear = false;
+    private final int[] dirtyUploadScratch = new int[8];
 
     private volatile boolean dirtyOnDisk = false;
     private volatile long lastAccessTime = System.currentTimeMillis();
@@ -441,9 +444,13 @@ public class MapRegion {
         }
 
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, texId);
-        int filter = linearFilter ? GL11.GL_LINEAR : GL11.GL_NEAREST;
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, filter);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+        boolean prevLinear = caveMode ? lastCaveLinear : lastSurfaceLinear;
+        if (prevLinear != linearFilter) {
+            int filter = linearFilter ? GL11.GL_LINEAR : GL11.GL_NEAREST;
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, filter);
+            if (caveMode) lastCaveLinear = linearFilter;
+            else lastSurfaceLinear = linearFilter;
+        }
 
         boolean fullUpload = caveMode ? fullCaveUploadNeeded : fullSurfaceUploadNeeded;
         if (fullUpload) {
@@ -455,20 +462,18 @@ public class MapRegion {
             uploadFullTexture(pixels);
         } else {
             // Drain up to 8 dirty chunks under microsecond dirtyLock, then upload to GPU lock-free
-            int[] toUpload = null;
             int uploadCount = 0;
             synchronized (dirtyLock) {
                 BitSet dirty = caveMode ? dirtyCaveChunks : dirtySurfaceChunks;
                 if (!dirty.isEmpty()) {
-                    toUpload = new int[8];
                     for (int bit = dirty.nextSetBit(0); bit >= 0 && uploadCount < 8; bit = dirty.nextSetBit(bit + 1)) {
-                        toUpload[uploadCount++] = bit;
+                        dirtyUploadScratch[uploadCount++] = bit;
                         dirty.clear(bit);
                     }
                 }
             }
             for (int i = 0; i < uploadCount; i++) {
-                int bit = toUpload[i];
+                int bit = dirtyUploadScratch[i];
                 uploadChunkRect(pixels, (bit & 31) << 4, (bit >>> 5) << 4);
             }
         }

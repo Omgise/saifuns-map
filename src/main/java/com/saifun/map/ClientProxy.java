@@ -86,6 +86,7 @@ public class ClientProxy extends CommonProxy {
                 .registerReloadListener(rm -> {
                     BlockColorResolver.clearCache();
                     EntityIconRenderer.clearCache();
+                    com.saifun.map.render.WaypointIconRenderer.clearCache();
                 });
         }
         SaifunsMapMod.LOG.info("{} {} client initialized (GTNH Navigator bridge: {}, ShareWhereIAm bridge: {}).",

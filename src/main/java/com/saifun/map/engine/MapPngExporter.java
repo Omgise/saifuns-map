@@ -78,15 +78,16 @@ public final class MapPngExporter {
         File dimDir,
         File outDir
     ) throws Exception {
-        // 1. Gather all region sources (memory first, then disk .smap files)
-        Map<Long, int[]> pixelByRegion = new HashMap<>();
-        List<long[]> regionCoords = new ArrayList<>();
+        // 1. Gather region sources without holding all disk region int[] buffers in RAM simultaneously!
+        Map<Long, int[]> memoryPixels = new HashMap<>();
+        List<long[]> memoryCoords = new ArrayList<>();
+        List<Object[]> diskRegions = new ArrayList<>(); // [rx, rz, File]
 
         for (Map.Entry<Long, MapRegion> e : loadedSnapshot.entrySet()) {
             MapRegion r = e.getValue();
             if (r == null || r.dimensionId != dimId || !r.hasSurfaceData()) continue;
-            pixelByRegion.put(e.getKey(), r.copySurfaceShadedArgb());
-            regionCoords.add(new long[] { r.regionX, r.regionZ, e.getKey() });
+            memoryPixels.put(e.getKey(), r.copySurfaceShadedArgb());
+            memoryCoords.add(new long[] { r.regionX, r.regionZ, e.getKey() });
         }
 
         if (dimDir.exists() && dimDir.isDirectory()) {
@@ -99,49 +100,39 @@ public final class MapPngExporter {
                     int rx = Integer.parseInt(m.group(1));
                     int rz = Integer.parseInt(m.group(2));
                     long key = MapWorldCache.packRegionKey(rx, rz);
-                    if (pixelByRegion.containsKey(key)) continue;
-
-                    MapRegion temp = new MapRegion(dimId, rx, rz);
-                    if (temp.loadFromDisk(f) && temp.hasSurfaceData()) {
-                        pixelByRegion.put(key, temp.copySurfaceShadedArgb());
-                        regionCoords.add(new long[] { rx, rz, key });
-                    }
+                    if (memoryPixels.containsKey(key)) continue;
+                    diskRegions.add(new Object[] { rx, rz, f });
                 }
             }
         }
 
-        if (regionCoords.isEmpty()) {
+        if (memoryCoords.isEmpty() && diskRegions.isEmpty()) {
             postChat(Lang.tr("saifunsmap.export.no_data"));
             return;
         }
 
-        // 2. Compute tight explored pixel bounds across all collected regions
-        int minWx = Integer.MAX_VALUE;
-        int maxWx = Integer.MIN_VALUE;
-        int minWz = Integer.MAX_VALUE;
-        int maxWz = Integer.MIN_VALUE;
+        // 2. Pass 1: Compute tight explored pixel bounds (streaming disk files one at a time -> low peak RAM!)
+        int[] bounds = new int[] { Integer.MAX_VALUE, Integer.MIN_VALUE, Integer.MAX_VALUE, Integer.MIN_VALUE };
 
-        for (long[] rc : regionCoords) {
-            int rx = (int) rc[0];
-            int rz = (int) rc[1];
-            int[] px = pixelByRegion.get(rc[2]);
-            int baseWx = rx * MapRegion.SIZE;
-            int baseWz = rz * MapRegion.SIZE;
-            for (int lz = 0; lz < MapRegion.SIZE; lz++) {
-                int rowOff = lz * MapRegion.SIZE;
-                for (int lx = 0; lx < MapRegion.SIZE; lx++) {
-                    if ((px[rowOff + lx] & 0xFF000000) != 0) {
-                        int wx = baseWx + lx;
-                        int wz = baseWz + lz;
-                        if (wx < minWx) minWx = wx;
-                        if (wx > maxWx) maxWx = wx;
-                        if (wz < minWz) minWz = wz;
-                        if (wz > maxWz) maxWz = wz;
-                    }
-                }
+        for (long[] rc : memoryCoords) {
+            updateBounds(bounds, (int) rc[0], (int) rc[1], memoryPixels.get(rc[2]));
+        }
+        List<Object[]> validDiskRegions = new ArrayList<>(diskRegions.size());
+        for (Object[] dr : diskRegions) {
+            int rx = (Integer) dr[0];
+            int rz = (Integer) dr[1];
+            File f = (File) dr[2];
+            MapRegion temp = new MapRegion(dimId, rx, rz);
+            if (temp.loadFromDisk(f) && temp.hasSurfaceData()) {
+                updateBounds(bounds, rx, rz, temp.copySurfaceShadedArgb());
+                validDiskRegions.add(dr);
             }
         }
 
+        int minWx = bounds[0];
+        int maxWx = bounds[1];
+        int minWz = bounds[2];
+        int maxWz = bounds[3];
         if (minWx > maxWx || minWz > maxWz) {
             postChat(Lang.tr("saifunsmap.export.no_data"));
             return;
@@ -169,28 +160,20 @@ public final class MapPngExporter {
             }
         }
 
-        for (long[] rc : regionCoords) {
-            int rx = (int) rc[0];
-            int rz = (int) rc[1];
-            int[] px = pixelByRegion.get(rc[2]);
-            int baseWx = rx * MapRegion.SIZE;
-            int baseWz = rz * MapRegion.SIZE;
-            for (int lz = 0; lz < MapRegion.SIZE; lz += step) {
-                int wz = baseWz + lz;
-                if (wz < minWz || wz > maxWz) continue;
-                int iy = (wz - minWz) / step;
-                if (iy < 0 || iy >= imgH) continue;
-                int rowOff = lz * MapRegion.SIZE;
-                for (int lx = 0; lx < MapRegion.SIZE; lx += step) {
-                    int argb = px[rowOff + lx];
-                    if ((argb & 0xFF000000) == 0) continue;
-                    int wx = baseWx + lx;
-                    if (wx < minWx || wx > maxWx) continue;
-                    int ix = (wx - minWx) / step;
-                    if (ix >= 0 && ix < imgW) {
-                        img.setRGB(ix, iy, argb);
-                    }
-                }
+        // 3. Pass 2: Blit memory regions (releasing each buffer immediately) and stream disk regions one by one
+        for (long[] rc : memoryCoords) {
+            int[] px = memoryPixels.remove(rc[2]);
+            if (px != null) {
+                blitRegion(img, imgW, imgH, (int) rc[0], (int) rc[1], px, minWx, maxWx, minWz, maxWz, step);
+            }
+        }
+        for (Object[] dr : validDiskRegions) {
+            int rx = (Integer) dr[0];
+            int rz = (Integer) dr[1];
+            File f = (File) dr[2];
+            MapRegion temp = new MapRegion(dimId, rx, rz);
+            if (temp.loadFromDisk(f) && temp.hasSurfaceData()) {
+                blitRegion(img, imgW, imgH, rx, rz, temp.copySurfaceShadedArgb(), minWx, maxWx, minWz, maxWz, step);
             }
         }
 
@@ -203,6 +186,50 @@ public final class MapPngExporter {
         ImageIO.write(img, "PNG", outFile);
 
         postSuccessChat(outFile, imgW, imgH);
+    }
+
+    private static void updateBounds(int[] bounds, int rx, int rz, int[] px) {
+        int baseWx = rx * MapRegion.SIZE;
+        int baseWz = rz * MapRegion.SIZE;
+        for (int lz = 0; lz < MapRegion.SIZE; lz++) {
+            int rowOff = lz * MapRegion.SIZE;
+            for (int lx = 0; lx < MapRegion.SIZE; lx++) {
+                if ((px[rowOff + lx] & 0xFF000000) != 0) {
+                    int wx = baseWx + lx;
+                    int wz = baseWz + lz;
+                    if (wx < bounds[0]) bounds[0] = wx;
+                    if (wx > bounds[1]) bounds[1] = wx;
+                    if (wz < bounds[2]) bounds[2] = wz;
+                    if (wz > bounds[3]) bounds[3] = wz;
+                }
+            }
+        }
+    }
+
+    private static void blitRegion(
+        BufferedImage img, int imgW, int imgH,
+        int rx, int rz, int[] px,
+        int minWx, int maxWx, int minWz, int maxWz, int step
+    ) {
+        int baseWx = rx * MapRegion.SIZE;
+        int baseWz = rz * MapRegion.SIZE;
+        for (int lz = 0; lz < MapRegion.SIZE; lz += step) {
+            int wz = baseWz + lz;
+            if (wz < minWz || wz > maxWz) continue;
+            int iy = (wz - minWz) / step;
+            if (iy < 0 || iy >= imgH) continue;
+            int rowOff = lz * MapRegion.SIZE;
+            for (int lx = 0; lx < MapRegion.SIZE; lx += step) {
+                int argb = px[rowOff + lx];
+                if ((argb & 0xFF000000) == 0) continue;
+                int wx = baseWx + lx;
+                if (wx < minWx || wx > maxWx) continue;
+                int ix = (wx - minWx) / step;
+                if (ix >= 0 && ix < imgW) {
+                    img.setRGB(ix, iy, argb);
+                }
+            }
+        }
     }
 
     private static void postChat(final String message) {

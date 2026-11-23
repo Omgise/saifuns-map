@@ -251,6 +251,7 @@ public class WaypointManager {
         waypoints.clear();
         customGroups.clear();
         hiddenGroupsLower.clear();
+        receivedGroupOffers.clear();
         dimCache = Collections.emptyMap();
         loadedWorldId = null;
         wasDeadLastTick = false;

@@ -35,6 +35,8 @@ public class MinimapRenderer {
 
     private static final double MASK_Z = 50.0;
     private static final int CIRCLE_SEGMENTS = 64;
+    private static final String[] COMPASS_LABELS = { "N", "E", "S", "W" };
+    private static final double[] COMPASS_ANGLES = { -90.0, 0.0, 90.0, 180.0 };
 
     private final MapWorldCache worldCache;
     private final ChunkScanner chunkScanner;
@@ -46,6 +48,14 @@ public class MinimapRenderer {
     private float smoothSize = 0.0f;
     private boolean enlarged = false;
     private long lastFrameNanos = 0L;
+
+    // Zero-allocation ScaledResolution cache (recomputed only on window resize / GUI scale change)
+    private int cachedDispW = -1;
+    private int cachedDispH = -1;
+    private int cachedGuiScale = -1;
+    private int cachedScaledW = 1;
+    private int cachedScaledH = 1;
+    private int cachedScaleFactor = 1;
 
     // Zero-allocation info-bar string cache (only rebuilt when player moves block or minute ticks)
     private int lastInfoX = Integer.MIN_VALUE;
@@ -106,10 +116,19 @@ public class MinimapRenderer {
         smoothZoom += (targetZoom - smoothZoom) * ease;
         if (Math.abs(smoothZoom - targetZoom) < 0.002f) smoothZoom = targetZoom;
 
-        ScaledResolution sr = new ScaledResolution(mc, mc.displayWidth, mc.displayHeight);
-        int sw = sr.getScaledWidth();
-        int sh = sr.getScaledHeight();
-        int scaleFactor = sr.getScaleFactor();
+        int gs = mc.gameSettings != null ? mc.gameSettings.guiScale : 0;
+        if (mc.displayWidth != cachedDispW || mc.displayHeight != cachedDispH || gs != cachedGuiScale) {
+            cachedDispW = mc.displayWidth;
+            cachedDispH = mc.displayHeight;
+            cachedGuiScale = gs;
+            ScaledResolution sr = new ScaledResolution(mc, mc.displayWidth, mc.displayHeight);
+            cachedScaledW = sr.getScaledWidth();
+            cachedScaledH = sr.getScaledHeight();
+            cachedScaleFactor = Math.max(1, sr.getScaleFactor());
+        }
+        int sw = cachedScaledW;
+        int sh = cachedScaledH;
+        int scaleFactor = cachedScaleFactor;
 
         float targetSize = enlarged ? Math.min(Math.min(sw, sh) - 48, cfg.minimapSize * 1.85f) : cfg.minimapSize;
         if (smoothSize <= 1.0f) smoothSize = targetSize;
@@ -570,13 +589,11 @@ public class MinimapRenderer {
         FontRenderer fr = Minecraft.getMinecraft().fontRenderer;
         if (fr == null) return;
 
-        String[] labels = { "N", "E", "S", "W" };
-        double[] baseAngles = { -90.0, 0.0, 90.0, 180.0 };
         float scale = 0.62f;
         double inset = 7.5;
 
         for (int i = 0; i < 4; i++) {
-            double ang = Math.toRadians(baseAngles[i] + mapRotationDeg);
+            double ang = Math.toRadians(COMPASS_ANGLES[i] + mapRotationDeg);
             double dx = Math.cos(ang);
             double dy = Math.sin(ang);
 
@@ -596,7 +613,7 @@ public class MinimapRenderer {
             int fg = i == 0 ? 0xFFFFFFFF : 0xFFE2E8F0;
 
             GLDraw.rect(px - 3.6, py - 3.6, px + 3.6, py + 3.6, bg);
-            GLDraw.drawCenteredText(fr, labels[i], px + 0.3, py - 2.3, scale, fg);
+            GLDraw.drawCenteredText(fr, COMPASS_LABELS[i], px + 0.3, py - 2.3, scale, fg);
         }
     }
 

@@ -6,7 +6,9 @@ import net.minecraft.util.ResourceLocation;
 import org.lwjgl.opengl.GL11;
 
 import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Crisp pixel-art waypoint icon renderer backed by MIT-licensed Minecraft-style PNG textures
@@ -21,6 +23,11 @@ import java.util.Map;
 public final class WaypointIconRenderer {
 
     private static final Map<Waypoint.IconType, ResourceLocation> TEXTURES = new EnumMap<>(Waypoint.IconType.class);
+    private static final Set<Waypoint.IconType> FILTER_INITIALIZED = EnumSet.noneOf(Waypoint.IconType.class);
+
+    public static void clearCache() {
+        FILTER_INITIALIZED.clear();
+    }
 
     static {
         TEXTURES.put(Waypoint.IconType.PIN, new ResourceLocation("saifunsmap", "textures/waypoints/pin.png"));
@@ -94,8 +101,10 @@ public final class WaypointIconRenderer {
         GLDraw.ensureBlend();
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         Minecraft.getMinecraft().getTextureManager().bindTexture(tex);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+        if (FILTER_INITIALIZED.add(type)) {
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+        }
 
         if (isTintable(type)) {
             float r = ((rgbColor >>> 16) & 0xFF) / 255.0f;

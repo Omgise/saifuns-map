@@ -10,6 +10,18 @@ import org.lwjgl.opengl.GL11;
  */
 public final class GLDraw {
 
+    private static final int LUT_SEGMENTS = 64;
+    private static final double[] COS_64 = new double[LUT_SEGMENTS + 1];
+    private static final double[] SIN_64 = new double[LUT_SEGMENTS + 1];
+
+    static {
+        for (int i = 0; i <= LUT_SEGMENTS; i++) {
+            double ang = (Math.PI * 2.0 * i) / LUT_SEGMENTS;
+            COS_64[i] = Math.cos(ang);
+            SIN_64[i] = Math.sin(ang);
+        }
+    }
+
     private GLDraw() {}
 
     public static void setColor(int argb) {
@@ -75,9 +87,15 @@ public final class GLDraw {
         setColor(argb);
         GL11.glBegin(GL11.GL_TRIANGLE_FAN);
         GL11.glVertex3d(cx, cy, z);
-        for (int i = 0; i <= segments; i++) {
-            double ang = (Math.PI * 2.0 * i) / segments;
-            GL11.glVertex3d(cx + Math.cos(ang) * r, cy + Math.sin(ang) * r, z);
+        if (segments == LUT_SEGMENTS) {
+            for (int i = 0; i <= LUT_SEGMENTS; i++) {
+                GL11.glVertex3d(cx + COS_64[i] * r, cy + SIN_64[i] * r, z);
+            }
+        } else {
+            for (int i = 0; i <= segments; i++) {
+                double ang = (Math.PI * 2.0 * i) / segments;
+                GL11.glVertex3d(cx + Math.cos(ang) * r, cy + Math.sin(ang) * r, z);
+            }
         }
         GL11.glEnd();
         GL11.glEnable(GL11.GL_TEXTURE_2D);
@@ -89,12 +107,21 @@ public final class GLDraw {
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         setColor(argb);
         GL11.glBegin(GL11.GL_TRIANGLE_STRIP);
-        for (int i = 0; i <= segments; i++) {
-            double ang = (Math.PI * 2.0 * i) / segments;
-            double cos = Math.cos(ang);
-            double sin = Math.sin(ang);
-            GL11.glVertex2d(cx + cos * outerR, cy + sin * outerR);
-            GL11.glVertex2d(cx + cos * innerR, cy + sin * innerR);
+        if (segments == LUT_SEGMENTS) {
+            for (int i = 0; i <= LUT_SEGMENTS; i++) {
+                double cos = COS_64[i];
+                double sin = SIN_64[i];
+                GL11.glVertex2d(cx + cos * outerR, cy + sin * outerR);
+                GL11.glVertex2d(cx + cos * innerR, cy + sin * innerR);
+            }
+        } else {
+            for (int i = 0; i <= segments; i++) {
+                double ang = (Math.PI * 2.0 * i) / segments;
+                double cos = Math.cos(ang);
+                double sin = Math.sin(ang);
+                GL11.glVertex2d(cx + cos * outerR, cy + sin * outerR);
+                GL11.glVertex2d(cx + cos * innerR, cy + sin * innerR);
+            }
         }
         GL11.glEnd();
         GL11.glEnable(GL11.GL_TEXTURE_2D);

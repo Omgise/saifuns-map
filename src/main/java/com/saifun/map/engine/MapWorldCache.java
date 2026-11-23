@@ -243,14 +243,21 @@ public class MapWorldCache {
     }
 
     /**
-     * Called on the main GL thread each frame/tick to free orphaned textures and trigger periodic saves.
+     * Called on the main GL thread each frame to free orphaned OpenGL textures.
      */
     public void onRenderTick() {
         MapRegion toDelete;
         while ((toDelete = pendingTextureDeletes.poll()) != null) {
             toDelete.deleteTextures();
         }
+        onClientTickMaintenance();
+    }
 
+    /**
+     * Called from ClientTickEvent so periodic disk saves and LRU region eviction ALWAYS run
+     * even when the Minimap HUD is disabled or F3 debug overlay is open!
+     */
+    public void onClientTickMaintenance() {
         long now = System.currentTimeMillis();
         if (now - lastSaveTickMs >= 15_000L) {
             lastSaveTickMs = now;

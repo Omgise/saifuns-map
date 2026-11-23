@@ -109,6 +109,9 @@ public class PacketQuickPing implements IMessage {
                 if (prev != null && (now - prev) < RATE_LIMIT_MS) {
                     return null;
                 }
+                if (LAST_PING_BY_PLAYER.size() > 256) {
+                    LAST_PING_BY_PLAYER.values().removeIf(t -> (now - t) > 60_000L);
+                }
                 LAST_PING_BY_PLAYER.put(sender.getUniqueID(), now);
 
                 String realName = sender.getCommandSenderName();
