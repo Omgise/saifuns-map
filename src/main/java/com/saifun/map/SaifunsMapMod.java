@@ -12,6 +12,7 @@ import org.apache.logging.log4j.Logger;
     modid = SaifunsMapMod.MODID,
     name = SaifunsMapMod.NAME,
     version = Tags.VERSION,
+    dependencies = "after:sharewhereiam;after:navigator",
     acceptableRemoteVersions = "*"
 )
 public class SaifunsMapMod {

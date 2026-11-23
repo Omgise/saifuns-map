@@ -27,7 +27,6 @@ import org.lwjgl.input.Keyboard;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 
 /**
  * Full bidirectional zero-Mixin bridge into GTNH's ShareWhereIAm mod (sharewhereiam 2.x).
@@ -109,24 +108,10 @@ public final class ShareWhereIAmBridge {
                 shareKeyBinding = (KeyBinding) kbField.get(null);
             } catch (Throwable ignored) {}
 
-            // CRITICAL: When JourneyMap is disabled, ShareWhereIAm.postInit() skips NetworkLoader.load()!
-            // Register ShareWhereIAm's exact packet discriminators (0..3) if not already loaded.
-            if (!journeyMapLoaded) {
-                try {
-                    Class<?> clsNetLoader = Class.forName("com.muxiu1997.sharewhereiam.loader.NetworkLoader");
-                    Field nextIdField = clsNetLoader.getDeclaredField("nextID");
-                    nextIdField.setAccessible(true);
-                    int nextId = nextIdField.getInt(null);
-                    if (nextId == 0) {
-                        Method loadMethod = clsNetLoader.getMethod("load");
-                        loadMethod.invoke(null);
-                        SaifunsMapMod.LOG.info("Activated ShareWhereIAm network discriminators (JourneyMap disabled).");
-                    }
-                } catch (Throwable t) {
-                    SaifunsMapMod.LOG.warn("Could not invoke ShareWhereIAm NetworkLoader.load(): {}", t.toString());
-                }
-            }
-
+            // NOTE: ShareWhereIAm registers its own packet discriminators (0..3) in ShareWhereIAm.postInit()
+            // even when JourneyMap is absent (Mods.isEnabled() returns true without JourneyMap).
+            // Never invoke NetworkLoader.load() manually here, or discriminators shift to 4..7 and cause
+            // server-side DecoderException kicks!
             cachedWaypointManager = waypointManager;
             ensurePipelineHooked();
 
@@ -349,9 +334,11 @@ public final class ShareWhereIAmBridge {
 
         @Override
         public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+            boolean consumed = false;
             if (!journeyMapLoaded && msg != null) {
                 try {
                     if (clsMsgShare != null && clsMsgShare.isInstance(msg)) {
+                        consumed = true;
                         pendingFallbackWp = null; // Server echoed the packet — no chat fallback needed!
                         final String sender = (String) fldSharePlayerName.get(msg);
                         final String json = (String) fldShareJson.get(msg);
@@ -363,6 +350,7 @@ public final class ShareWhereIAmBridge {
                             );
                         }
                     } else if (clsMsgMark != null && clsMsgMark.isInstance(msg)) {
+                        consumed = true;
                         final String sender = (String) fldMarkPlayerName.get(msg);
                         final String json = (String) fldMarkJson.get(msg);
                         final Waypoint wp = parseSharedWaypointJson(json);
@@ -383,7 +371,11 @@ public final class ShareWhereIAmBridge {
                     SaifunsMapMod.LOG.debug("Error intercepting ShareWhereIAm packet: {}", t.toString());
                 }
             }
-            ctx.fireChannelRead(msg);
+            // When JourneyMap is absent, consume Share/Mark packets so ShareWhereIAm's JourneyMap-only
+            // client handler does not run downstream (which would call missing JourneyMap classes).
+            if (!consumed) {
+                ctx.fireChannelRead(msg);
+            }
         }
     }
 }
