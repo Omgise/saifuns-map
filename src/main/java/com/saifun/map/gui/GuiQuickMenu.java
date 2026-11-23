@@ -10,10 +10,13 @@ import com.saifun.map.render.GLDraw;
 import com.saifun.map.render.MinimapRenderer;
 import com.saifun.map.util.Lang;
 import com.saifun.map.waypoints.WaypointManager;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.util.MathHelper;
+import net.minecraft.util.ResourceLocation;
 import org.lwjgl.input.Keyboard;
+import org.lwjgl.opengl.GL11;
 
 /**
  * Compact single-key Quick Actions popup menu for toggling every map control
@@ -37,6 +40,10 @@ public class GuiQuickMenu extends GuiScreen {
     private static final int ID_ADD_WAYPOINT = 22;
     private static final int ID_OPEN_SETTINGS = 23;
     private static final int ID_CLOSE = 24;
+
+    private static final ResourceLocation GTNH_LOGO_TEX =
+        new ResourceLocation("dreamcraft", "textures/icon/GTNH_256x256.png");
+    private static Boolean gtnhLogoAvailable = null;
 
     private final MapWorldCache worldCache;
     private final ChunkScanner chunkScanner;
@@ -293,9 +300,23 @@ public class GuiQuickMenu extends GuiScreen {
         int divY = panelY + 153;
         GLDraw.rect(panelX + 12, divY, panelX + panelW - 12, divY + 1, 0x55334155);
 
+        int titleX = panelX + 12;
+        if (hasGtnhLogo()) {
+            double lx = panelX + 8.0;
+            double ly = panelY + 5.0;
+            GLDraw.ensureBlend();
+            GL11.glEnable(GL11.GL_TEXTURE_2D);
+            Minecraft.getMinecraft().getTextureManager().bindTexture(GTNH_LOGO_TEX);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+            GL11.glColor4f(1.0f, 1.0f, 1.0f, 0.96f);
+            GLDraw.texturedQuad(lx, ly, lx + 14.0, ly + 14.0, 0.0, 0.0, 1.0, 1.0);
+            GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+            titleX = panelX + 27;
+        }
         this.fontRendererObj.drawStringWithShadow(
             Lang.tr("saifunsmap.quickmenu.title"),
-            panelX + 12,
+            titleX,
             panelY + 8,
             0xFFFFFFFF
         );
@@ -304,5 +325,16 @@ public class GuiQuickMenu extends GuiScreen {
         this.fontRendererObj.drawStringWithShadow(hint, panelX + panelW - hw - 10, panelY + 8, 0xFF64748B);
 
         super.drawScreen(mouseX, mouseY, partialTicks);
+    }
+
+    private static boolean hasGtnhLogo() {
+        if (gtnhLogoAvailable == null) {
+            try {
+                gtnhLogoAvailable = Minecraft.getMinecraft().getResourceManager().getResource(GTNH_LOGO_TEX) != null;
+            } catch (Throwable ignored) {
+                gtnhLogoAvailable = false;
+            }
+        }
+        return gtnhLogoAvailable;
     }
 }
