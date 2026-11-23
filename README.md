@@ -1,42 +1,84 @@
 # Saifun's Map
 
-Modern **Xaero-style Minimap & World Map** built from scratch for **GT: New Horizons 1.7.10** (2.9.0 / 2.9.1, Java 8 & Java 17–25 LWJGL3ify, Angelica-safe).
+**A fast, minimalist, clean-room Minimap & Fullscreen World Map built specifically for Minecraft 1.7.10 and GT: New Horizons (GTNH 2.9+).**
 
-## Features
+Zero Mixins · Angelica & Shaders Ready · Java 8 & Java 17–25 (LWJGL3ify) · Full English & Russian (`en_US` / `ru_RU`) Localization · `LGPL-3.0`
 
-- **Unified Minimap + Fullscreen World Map**: shared async chunk scanner, topographic height shading, true modded block texture colors, biome tinting, translucent water depth, and compressed binary `512×512` region disk cache (`.smap`).
-- **Modern Xaero-Style Design**: square & circular minimap (Angelica-safe depth mask, zero stencil requirement), smooth zoom & heading rotation / North-Lock, compass rim, smart **Cave Mode** (auto roof & Nether slice), and translucent info bar.
-- **Unrestricted Entity Radar (Zero FairPlay)**:
-  - Never suppresses players, mobs, or cave mode from server packets/MOTD.
-  - Renders player skin heads (face + hat layer) & usernames, plus dynamic mob heads for vanilla and GTNH modded mobs (and optional resource-pack 2D icon overrides) with Y-height carets.
-  - Optional server-side sync: works 100% client-side on any server; if installed on a server too, syncs player positions across unlimited distance.
-- **Full GTNH JourneyMap Parity via Native `Navigator` Bridge** (zero mixins required):
-  - **VisualProspecting**: GregTech ore veins, underground fluids, Thaumcraft nodes, search bar, depletion toggle, hover tooltips, double-click waypoints, and optional rendering right on the Minimap.
-  - **ServerUtilities**: claimed & chunkloaded team chunks and interactive claiming directly on the World Map.
-  - **GTNH Overlays**: exact `3×3` chunk (`48×48`) GT ore vein grid with center-chunk highlight, `16×16` chunk grid, and Slime Chunks.
-- **Waypoints & One-Click Migration**:
-  - Crisp 3D in-world waypoint badges (optional beacon beam), automatic death waypoints, chat sharing & parsing (JourneyMap and Xaero formats), and teleportation.
-  - Built-in one-click importer for **JourneyMap (JSON)** and **legacy Xaero (txt)** waypoints.
+---
 
-## Default Keybinds
+## Highlights
 
-| Key | Action |
-| :--- | :--- |
-| `M` | Open Fullscreen World Map |
-| `U` | Open Waypoints Manager (includes JourneyMap/Xaero Importer) |
-| `B` | Quick Add Waypoint |
-| `Y` | Open Saifun's Map Settings (live preview) |
-| `H` | Toggle Minimap HUD |
-| `=` / `-` | Minimap Zoom In / Out |
+- **Crisp, True-Color Terrain Engine**
+  - Samples actual top-face block PNG textures directly through Minecraft's `IResourceManager` (fully Angelica-safe and resource-pack-aware — fixes inaccurate vanilla `MapColor` hues on modded blocks such as BoP Ash Block or RWG stained clay).
+  - Directional NW→SE topographic shading, cast cliff/tree shadows, ambient occlusion, transparent water depth gradients, and compressed `.smap` disk caching.
+  - **Dimension-Aware GTNH Scanning:** stable height-independent Nether & bedrock-roofed cavern scanning (with disk persistence and lava shoreline shading), clean open-sky scanning for The End, Galacticraft/GalaxySpace planets & orbital stations, and smart ceiling-based Cave Mode for Overworld & Twilight Forest.
+- **Native GTNH Integrations (Zero Mixins)**
+  - **GTNH Navigator (`1.1.x`):** full support for **VisualProspecting** (Ore Veins, Underground Fluids), **TCNodeTracker** (Thaumcraft Nodes), and **ServerUtilities** (Chunk Claims & Chunk Loading) with tactical focus dimming, ore tooltips, double-click tracking, `Delete` depletion/unclaim, NEI `R`/`U`, and right-click context actions.
+  - **Tracked Target Icons & 3D Beacons:** tracked GTNH ore veins and Thaumcraft nodes display their **exact native overlay icon** with a golden beacon column in 3D and on the minimap, while background waypoints dim cleanly out of the way.
+  - **ShareWhereIAm & JourneyMap Compatible:** bidirectional chat sharing with clean in-place clickable `[Save] [Edit] [Beacon]` cards and one-click JourneyMap waypoint import.
+- **Minimalist Waypoints & 12 Pixel-Art Icons**
+  - 12 crisp Minecraft-style pixel-art icons (Pin, Home, Pickaxe, Sword, Portal, Village, Star, Gold, Food, Armor, Diamond, Death Skull), interactive HSV Color Picker, and exact timestamped automatic Death waypoints (`Death (HH:mm:ss)`).
+  - User-created custom groups with inline `+` creation, LMB filter, RMB instant group visibility toggle, live search, distance/name/date sorting, and two-click **Clear Deaths**.
+  - Right-click any waypoint on the World Map to Teleport, Edit, Hide, Share, or Delete.
+- **Hybrid Multiplayer & Quick 3D Pings (`acceptableRemoteVersions = "*"`)**
+  - **Client-only friendly:** works on any server without requiring server installation (bridges through ShareWhereIAm/chat).
+  - **Server-assisted bonus:** installing the same jar on the server unlocks long-range teammate radar (no FairPlay restrictions), native animated 3D Quick Pings with soft sound chime & countdown, and 1-click waypoint group sharing.
+- **Zero-Clutter Controls & Async PNG Export**
+  - Compact **Quick Menu (`Y`)** toggles every map overlay & setting with live minimap preview, keeping your keyboard free.
+  - Full Settings screen with smooth sliders and live minimap preview.
+  - Asynchronous PNG map exporter (`/smap export` or Settings → *Export Map PNG*) saves tight-cropped explored dimension maps to `screenshots/saifunsmap/` with a clickable chat link.
 
-## Building
+---
+
+## Default Keybindings
+
+Only essential keys are bound by default; every other toggle remains available in **Controls → Saifun's Map** (unbound by default) and inside the **Quick Menu (`Y`)**:
+
+| Action | Default Key |
+|---|---|
+| Open World Map | `J` |
+| Quick Map Menu | `Y` |
+| Quick Add Waypoint | `B` |
+| Open Waypoints Menu | `U` |
+| Enlarge Minimap (Smooth) | `Z` |
+| Minimap Zoom In / Out | `=` / `-` |
+| Quick 3D Ping | *(Unbound — bind in Controls, or RMB on World Map)* |
+
+## Client Commands
+
+- `/smap share [name]` — Share your current location in chat.
+- `/smap export` — Export the explored map of your current dimension to PNG (`screenshots/saifunsmap/`).
+
+## Installation
+
+1. Drop `saifunsmap-<version>.jar` into your `.minecraft/mods/` folder (works cleanly alongside or in place of JourneyMap).
+2. *(Optional)* Place the same jar in the server's `mods/` folder to enable long-range teammate radar, native 3D pings, and 1-click group sharing.
+
+## Building from Source
 
 ```bash
 ./gradlew build
 ```
 
-The playable Forge 1.7.10 JAR is generated in `build/libs/saifunsmap-<version>.jar`.
+Built jars are output to `build/libs/saifunsmap-<version>.jar`.
+
+---
+
+## Русская версия (Краткое описание)
+
+**Saifun's Map** — быстрая, минималистичная мини-карта и полноэкранная карта мира для **Minecraft 1.7.10** и **GT: New Horizons (2.9+)** без единого Mixin (полная совместимость с **Angelica**, шейдерами и **Java 8 / 17–25**).
+
+### Основные возможности
+- **Точные цвета блоков и рельеф:** прямое считывание PNG-текстур блоков через `IResourceManager` (корректные цвета для BoP, RWG, GregTech и ресурспаков даже под Angelica), направленные тени, прозрачность воды, стабильный скан Незера и корректная работа в Энде, Twilight Forest и космосе Galacticraft / GalaxySpace.
+- **Полная интеграция с GTNH:** нативная поддержка слоёв **VisualProspecting** (рудные жилы, жидкости, `Delete` для пометки выкопанной жилы, двойной клик / ПКМ для отслеживания с 3D-маяком и родной иконкой руды), **TCNodeTracker** (ноды Thaumcraft с иконкой аспекта), **ServerUtilities** (приват и прогрузка чанков) и **ShareWhereIAm**.
+- **Минималистичные метки:** 12 пиксельных иконок (булавка, дом, кирка, меч, портал, череп смерти и др.), точное время в метках смерти, пользовательские группы с вкл/выкл по ПКМ, живой поиск, сортировка, «Удалить смерти», контекстное меню ПКМ на карте мира и импорт меток из JourneyMap.
+- **Гибридный мультиплеер:** работает на любом сервере без установки на сервер; при установке на сервер дополнительно включаются дальний радар друзей, анимированные быстрые 3D-пинги со звуком и шаринг целой группы меток в 1 клик.
+- **Удобство:** быстрое меню по **`Y`**, карта мира по **`J`**, слайдеры настроек с живым превью и асинхронный экспорт карты в PNG (`/smap export`).
+
+---
 
 ## License
 
-LGPL-3.0 (open source).
+This project is licensed under the **GNU Lesser General Public License v3.0 (LGPL-3.0)** — see [LICENSE](LICENSE).
+
+Third-party asset attributions (MIT pixel-art waypoint icons from `nickesc/more-journeymap-waypoints`) are documented in [THIRD_PARTY_LICENSES.txt](src/main/resources/THIRD_PARTY_LICENSES.txt).

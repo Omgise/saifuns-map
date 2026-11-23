@@ -549,6 +549,10 @@ public class MapRegion {
         return hasAnyCaveData && caveShadedArgb != null;
     }
 
+    public synchronized int[] copySurfaceShadedArgb() {
+        return surfaceShadedArgb.clone();
+    }
+
     public boolean isChunkPopulated(int localCx, int localCz) {
         if (localCx < 0 || localCx >= CHUNKS_PER_SIDE || localCz < 0 || localCz >= CHUNKS_PER_SIDE) return false;
         synchronized (dirtyLock) {

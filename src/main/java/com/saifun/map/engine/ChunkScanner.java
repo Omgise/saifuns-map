@@ -90,11 +90,18 @@ public class ChunkScanner {
         int dimId = world.provider.dimensionId;
         worldCache.ensureWorldAndDimension(dimId);
 
+        int pcxNow = MathHelper.floor_double(player.posX) >> 4;
+        int pczNow = MathHelper.floor_double(player.posZ) >> 4;
+        Chunk playerChunk = world.getChunkProvider().chunkExists(pcxNow, pczNow)
+            ? world.getChunkFromChunkCoords(pcxNow, pczNow)
+            : null;
+        boolean roofedDim = isRoofedCavernDimension(world, playerChunk);
+
         boolean prevCave = activeCaveMode;
-        activeCaveMode = detectCaveMode(world, player);
-        int caveAnchorY = computeCaveAnchorY(world, player);
-        boolean onNetherRoof = world.provider.hasNoSky && player.posY >= 126.0;
-        boolean roofTransition = world.provider.hasNoSky && (onNetherRoof != lastOnNetherRoof);
+        activeCaveMode = detectCaveMode(world, player, roofedDim);
+        int caveAnchorY = computeCaveAnchorY(world, player, roofedDim);
+        boolean onNetherRoof = roofedDim && player.posY >= 126.0;
+        boolean roofTransition = roofedDim && (onNetherRoof != lastOnNetherRoof);
         if (roofTransition) {
             lastOnNetherRoof = onNetherRoof;
         }
@@ -176,15 +183,32 @@ public class ChunkScanner {
         }
     }
 
-    private boolean detectCaveMode(World world, EntityClientPlayerMP player) {
+    /**
+     * Distinguishes true bedrock-roofed cavern dimensions (Nether, Deep Dark, Bedrock Dim)
+     * from open no-sky dimensions (The End, Galacticraft Moon/Mars/Asteroids, Space Stations, GalaxySpace).
+     */
+    private static boolean isRoofedCavernDimension(World world, Chunk sampleChunk) {
+        if (world == null || world.provider == null) return false;
+        if (world.provider.dimensionId == -1) return true;
+        if (!world.provider.hasNoSky) return false;
+        if (sampleChunk != null && !sampleChunk.isEmpty()) {
+            Block b1 = sampleChunk.getBlock(8, 127, 8);
+            Block b2 = sampleChunk.getBlock(4, 127, 4);
+            Block b3 = sampleChunk.getBlock(8, 126, 8);
+            return b1 == Blocks.bedrock || b2 == Blocks.bedrock || b3 == Blocks.bedrock;
+        }
+        return false;
+    }
+
+    private boolean detectCaveMode(World world, EntityClientPlayerMP player, boolean roofedDim) {
         MapConfig.CaveMode mode = MapConfig.get().caveMode;
         if (mode == MapConfig.CaveMode.ON) return true;
         if (mode == MapConfig.CaveMode.OFF) return false;
 
-        // AUTO: In roofed / no-sky dimensions (e.g. Nether), the primary map layer itself renders
+        // AUTO: In roofed cavern dimensions (e.g. Nether, Deep Dark), the primary map layer itself renders
         // the full height-independent cavern (Y=122..1) and persists to disk, preventing Y-slice chaos!
-        // Only activate Y-sliced Cave Mode in the Nether when the player explicitly toggles Cave Mode ON.
-        if (world.provider.hasNoSky) {
+        // Open no-sky dimensions (The End, Galacticraft Moon/Mars/Space) fall through to normal ceiling detection.
+        if (roofedDim) {
             return false;
         }
 
@@ -222,9 +246,9 @@ public class ChunkScanner {
         return false;
     }
 
-    private static int computeCaveAnchorY(World world, EntityClientPlayerMP player) {
+    private static int computeCaveAnchorY(World world, EntityClientPlayerMP player, boolean roofedDim) {
         int py = MathHelper.floor_double(player.posY);
-        if (world.provider.hasNoSky && py > 122) {
+        if (roofedDim && py > 122) {
             // Standing on Nether roof: show the roof surface
             return 127;
         }
@@ -237,7 +261,8 @@ public class ChunkScanner {
         int baseZ = chunk.zPosition << 4;
         int topSeg = Math.min(255, chunk.getTopFilledSegment() + 15);
         int sliceUp = MapConfig.get().caveSliceHeight;
-        boolean roofedCavern = world.provider.hasNoSky && !onNetherRoof;
+        boolean roofedDim = isRoofedCavernDimension(world, chunk);
+        boolean roofedCavern = roofedDim && !onNetherRoof;
 
         for (int lz = 0; lz < 16; lz++) {
             int wz = baseZ + lz;
@@ -380,9 +405,9 @@ public class ChunkScanner {
 
                 // --- Explicit Cave / Underground Y-slice pass ---
                 if (scanCave) {
-                    // In sky dimensions, strictly start BELOW the top solid surface (solidY - 1) with foundAir=false
-                    // so open-sky grass, trees, and rivers NEVER bleed into Cave Mode!
-                    int ceilingCap = world.provider.hasNoSky ? 122 : Math.min(254, solidY - 1);
+                    // In open dimensions (Overworld, End, Galacticraft Space, Twilight Forest), strictly start BELOW
+                    // the top solid surface (solidY - 1) so open-sky grass, trees, and asteroids NEVER bleed into Cave Mode!
+                    int ceilingCap = roofedDim ? 122 : Math.min(254, solidY - 1);
                     int maxY = Math.min(ceilingCap, caveAnchorY + sliceUp);
                     int minY = Math.max(1, caveAnchorY - 48);
                     // Step down from maxY: first find open underground air pocket, then first solid floor (or lava/water)

@@ -67,6 +67,10 @@ public class MapWorldCache {
         return activeDimension;
     }
 
+    public Map<Long, MapRegion> getLoadedRegionsSnapshot() {
+        return new java.util.HashMap<>(regions);
+    }
+
     public void ensureWorldAndDimension(int dimensionId) {
         String worldId = resolveCurrentWorldId();
         if (worldId == null) return;

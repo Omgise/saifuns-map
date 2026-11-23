@@ -1,6 +1,9 @@
 package com.saifun.map.waypoints;
 
 import com.saifun.map.ClientEventHandler;
+import com.saifun.map.ClientProxy;
+import com.saifun.map.SaifunsMapMod;
+import com.saifun.map.engine.MapPngExporter;
 import com.saifun.map.gui.GuiWaypointEdit;
 import com.saifun.map.util.Lang;
 import net.minecraft.client.Minecraft;
@@ -29,7 +32,7 @@ public class CommandSaifunsMap extends CommandBase {
 
     @Override
     public String getCommandUsage(ICommandSender sender) {
-        return "/smap <save|edit|beacon|share> [args]";
+        return "/smap <save|edit|beacon|share|export> [args]";
     }
 
     @Override
@@ -50,6 +53,13 @@ public class CommandSaifunsMap extends CommandBase {
         }
 
         String action = args[0].toLowerCase();
+
+        if ("export".equals(action)) {
+            if (SaifunsMapMod.proxy instanceof ClientProxy) {
+                MapPngExporter.exportCurrentDimensionAsync(((ClientProxy) SaifunsMapMod.proxy).getWorldCache());
+            }
+            return;
+        }
 
         if ("share".equals(action)) {
             Minecraft mc = Minecraft.getMinecraft();

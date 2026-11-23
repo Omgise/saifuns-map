@@ -4,6 +4,7 @@ import com.saifun.map.ClientProxy;
 import com.saifun.map.SaifunsMapMod;
 import com.saifun.map.config.MapConfig;
 import com.saifun.map.engine.BlockColorResolver;
+import com.saifun.map.engine.MapPngExporter;
 import com.saifun.map.render.GLDraw;
 import com.saifun.map.util.Lang;
 import net.minecraft.client.gui.GuiButton;
@@ -306,6 +307,16 @@ public class GuiMapSettings extends GuiScreen {
                         }
                     },
                     confirmClearMap
+                ));
+                currentItems.add(new ToggleItem(
+                    "saifunsmap.settings.export_png",
+                    null,
+                    () -> {
+                        if (SaifunsMapMod.proxy instanceof ClientProxy) {
+                            MapPngExporter.exportCurrentDimensionAsync(((ClientProxy) SaifunsMapMod.proxy).getWorldCache());
+                        }
+                    },
+                    false
                 ));
                 break;
 

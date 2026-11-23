@@ -69,6 +69,7 @@ saifunsmap.settings.waypoint_beams=Waypoint Beams
 saifunsmap.settings.auto_death=Auto Death WPs
 saifunsmap.settings.clear_map=Clear Map (Keep WPs)
 saifunsmap.settings.clear_map_confirm=Click Again to Confirm!
+saifunsmap.settings.export_png=Export Map PNG
 saifunsmap.settings.reset_defaults=Reset Defaults
 saifunsmap.settings.reset_confirm=Confirm Reset?
 
@@ -214,7 +215,13 @@ saifunsmap.cmd.group_imported=Imported %d waypoint(s) from shared group.
 saifunsmap.cmd.group_none=§7All waypoints from this group already exist.
 saifunsmap.cmd.group_expired=§cShared group link has expired.
 
-saifunsmap.cmd.usage=Usage: /smap share [name]  |  click [Save]/[Edit]/[Beacon] in shared waypoint messages.
+saifunsmap.cmd.usage=Usage: /smap share [name]  |  /smap export  |  click chat buttons.
+saifunsmap.export.started=Exporting explored map (Dim %d) to PNG...
+saifunsmap.export.done=Exported PNG (%dx%d):
+saifunsmap.export.open_hover=Click to open exported PNG image
+saifunsmap.export.no_data=§cNo explored map tiles found for this dimension.
+saifunsmap.export.busy=§eMap PNG export is already running...
+saifunsmap.export.failed=§cPNG export failed: %s
 saifunsmap.cmd.missing_data=§cMissing waypoint data.
 saifunsmap.cmd.invalid_data=§cInvalid shared waypoint data.
 saifunsmap.cmd.saved=Saved waypoint '§e%s§r' (%d, %d, %d, Dim %d).

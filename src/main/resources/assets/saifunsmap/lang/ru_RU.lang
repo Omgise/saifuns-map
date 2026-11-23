@@ -69,6 +69,7 @@ saifunsmap.settings.waypoint_beams=Лучи меток
 saifunsmap.settings.auto_death=Авто-смерти
 saifunsmap.settings.clear_map=Очистить карту (метки ост.)
 saifunsmap.settings.clear_map_confirm=Нажмите ещё раз!
+saifunsmap.settings.export_png=Экспорт карты в PNG
 saifunsmap.settings.reset_defaults=Сброс настроек
 saifunsmap.settings.reset_confirm=Подтвердить сброс?
 
@@ -214,7 +215,13 @@ saifunsmap.cmd.group_imported=Импортировано меток из гру�
 saifunsmap.cmd.group_none=§7Все метки из этой группы уже добавлены.
 saifunsmap.cmd.group_expired=§cСрок действия ссылки на группу истёк.
 
-saifunsmap.cmd.usage=Использование: /smap share [имя]  |  нажимайте [Сохранить]/[Изм.]/[Маяк] в чате.
+saifunsmap.cmd.usage=Использование: /smap share [имя]  |  /smap export  |  кнопки в чате.
+saifunsmap.export.started=Экспорт карты (Изм. %d) в PNG...
+saifunsmap.export.done=Карта сохранена (%dx%d):
+saifunsmap.export.open_hover=Нажмите, чтобы открыть PNG-файл
+saifunsmap.export.no_data=§cНет исследованных чанков в этом измерении.
+saifunsmap.export.busy=§eЭкспорт PNG уже выполняется...
+saifunsmap.export.failed=§cОшибка экспорта PNG: %s
 saifunsmap.cmd.missing_data=§cНет данных метки.
 saifunsmap.cmd.invalid_data=§cНекорректные данные метки.
 saifunsmap.cmd.saved=Метка «§e%s§r» сохранена (%d, %d, %d, Изм. %d).
