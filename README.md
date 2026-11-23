@@ -4,7 +4,11 @@
 
 Zero Mixins · Angelica & Shaders Ready · Java 8 & Java 17–25 (LWJGL3ify) · Full English & Russian (`en_US` / `ru_RU`) Localization · `LGPL-3.0`
 
-![Saifun's Map World Map with GTNH Ore Veins](docs/worldmap_preview.jpg)
+![Saifun's Map World Map with GTNH Ore Veins](docs/worldmap_gtnh_ores.png)
+
+| World Map & Entity Radar | Quick Menu (`Y`) & Minimap HUD |
+| :---: | :---: |
+| ![World Map & Entity Radar](docs/worldmap_terrain.png) | ![Quick Menu & Minimap HUD](docs/quickmenu_hud.png) |
 
 ---
 
