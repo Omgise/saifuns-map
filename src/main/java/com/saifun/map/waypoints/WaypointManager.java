@@ -9,6 +9,7 @@ import com.saifun.map.SaifunsMapMod;
 import com.saifun.map.compat.ShareWhereIAmBridge;
 import com.saifun.map.config.MapConfig;
 import com.saifun.map.engine.MapWorldCache;
+import com.saifun.map.network.PacketShareWaypointGroup;
 import com.saifun.map.util.Lang;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityClientPlayerMP;
@@ -492,8 +493,105 @@ public class WaypointManager {
         return true;
     }
 
+    private static final class ReceivedGroupOffer {
+        final String groupName;
+        final List<PacketShareWaypointGroup.SharedEntry> entries;
+        final long expiresAt;
+
+        ReceivedGroupOffer(String groupName, List<PacketShareWaypointGroup.SharedEntry> entries, long expiresAt) {
+            this.groupName = groupName;
+            this.entries = entries;
+            this.expiresAt = expiresAt;
+        }
+    }
+
+    private final Map<String, ReceivedGroupOffer> receivedGroupOffers = new HashMap<>();
+
+    public synchronized List<Waypoint> getWaypointsInGroup(String groupName) {
+        ensureLoaded();
+        List<Waypoint> out = new ArrayList<>();
+        if (groupName == null) return out;
+        for (Waypoint wp : waypoints) {
+            if (!wp.temporary && groupName.equalsIgnoreCase(wp.getEffectiveGroup())) {
+                out.add(wp);
+            }
+        }
+        return out;
+    }
+
+    public synchronized void onReceivedSharedGroup(
+        String sender,
+        String groupName,
+        List<PacketShareWaypointGroup.SharedEntry> entries
+    ) {
+        if (entries == null || entries.isEmpty()) return;
+        long now = System.currentTimeMillis();
+        receivedGroupOffers.values().removeIf(o -> now > o.expiresAt);
+
+        String token = Integer.toHexString((int) (now ^ (RANDOM.nextInt() << 1)));
+        String cleanGroup = Waypoint.normalizeGroup(groupName, Waypoint.Type.NORMAL);
+        receivedGroupOffers.put(token, new ReceivedGroupOffer(cleanGroup, new ArrayList<>(entries), now + 600_000L));
+
+        Minecraft mc = Minecraft.getMinecraft();
+        EntityClientPlayerMP player = mc.thePlayer;
+        if (player == null) return;
+
+        ChatComponentText line = new ChatComponentText("");
+        ChatComponentText tag = new ChatComponentText("[Saifun's Map] ");
+        tag.setChatStyle(new ChatStyle().setColor(EnumChatFormatting.AQUA));
+        line.appendSibling(tag);
+
+        if (sender != null && !sender.trim().isEmpty()) {
+            ChatComponentText who = new ChatComponentText("<" + sender.trim() + "> ");
+            who.setChatStyle(new ChatStyle().setColor(EnumChatFormatting.GREEN));
+            line.appendSibling(who);
+        }
+
+        ChatComponentText desc = new ChatComponentText(
+            Lang.tr("saifunsmap.chat.shared_group", cleanGroup, entries.size()) + " "
+        );
+        desc.setChatStyle(new ChatStyle().setColor(EnumChatFormatting.WHITE));
+        line.appendSibling(desc);
+
+        line.appendSibling(makeChatButton(
+            Lang.tr("saifunsmap.chat.btn.import_group"),
+            EnumChatFormatting.GREEN,
+            Lang.tr("saifunsmap.chat.btn.import_group_hover"),
+            "/smap importgroup " + token
+        ));
+
+        player.addChatMessage(line);
+        player.playSound("note.pling", 0.30f, 1.35f);
+    }
+
+    public synchronized int importReceivedGroup(String token) {
+        if (token == null) return -1;
+        ReceivedGroupOffer offer = receivedGroupOffers.get(token);
+        if (offer == null || System.currentTimeMillis() > offer.expiresAt) {
+            return -1;
+        }
+        ensureLoaded();
+        String grp = addCustomGroup(offer.groupName);
+        Waypoint.IconType[] icons = Waypoint.IconType.values();
+        int added = 0;
+        for (PacketShareWaypointGroup.SharedEntry e : offer.entries) {
+            Waypoint wp = new Waypoint(e.name, null, e.x, e.y, e.z, e.dim, e.color, Waypoint.Type.NORMAL);
+            wp.group = grp;
+            if (e.iconOrdinal >= 0 && e.iconOrdinal < icons.length) {
+                wp.icon = icons[e.iconOrdinal];
+            }
+            if (addIfNotDuplicate(wp)) {
+                added++;
+            }
+        }
+        if (added > 0) {
+            save();
+        }
+        return added;
+    }
+
     /**
-     * Adds or refreshes a timed transient 3D ping from a teammate (e.g. ShareWhereIAm Insert ping).
+     * Adds or refreshes a timed transient 3D ping from a teammate (native Quick Ping or ShareWhereIAm).
      */
     public synchronized void addTransientPing(
         String playerName,
@@ -511,15 +609,23 @@ public class WaypointManager {
                 it.remove();
             }
         }
+        long now = System.currentTimeMillis();
         String displayName = (label != null && !label.trim().isEmpty())
             ? label.trim()
             : (playerName != null ? playerName : "Ping");
         Waypoint ping = new Waypoint(displayName, "!", x, y, z, dimId, color, Waypoint.Type.SHARED_BEACON);
         ping.id = key;
         ping.temporary = true;
-        ping.expiresAt = System.currentTimeMillis() + Math.max(3000L, durationMs);
+        ping.icon = Waypoint.IconType.PIN;
+        ping.pingCreatedMs = now;
+        ping.expiresAt = now + Math.max(3000L, durationMs);
         waypoints.add(ping);
         rebuildDimCache();
+
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc.thePlayer != null && mc.theWorld != null && mc.theWorld.provider.dimensionId == dimId) {
+            mc.thePlayer.playSound("note.pling", 0.35f, 1.48f);
+        }
     }
 
     public void onClientTick() {

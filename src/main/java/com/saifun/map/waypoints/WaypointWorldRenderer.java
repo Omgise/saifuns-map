@@ -95,8 +95,32 @@ public class WaypointWorldRenderer {
                     boolean showFullLabel = priority
                         || (dimmedByTarget ? focused : (cfg.alwaysShowWaypointNames || focused || dist < 24.0));
 
+                    boolean isTimedPing = wp.type == Waypoint.Type.SHARED_BEACON && wp.expiresAt > 0L;
+                    long nowMs = isTimedPing ? System.currentTimeMillis() : 0L;
+                    float pingPopScale = 1.0f;
+                    float pingFade = 1.0f;
+                    float pingPulsePhase = 0.0f;
+                    int pingSecLeft = 0;
+                    if (isTimedPing) {
+                        long ageMs = Math.max(0L, nowMs - wp.pingCreatedMs);
+                        long remMs = Math.max(0L, wp.expiresAt - nowMs);
+                        pingSecLeft = (int) Math.ceil(remMs / 1000.0);
+                        if (ageMs < 350L) {
+                            // Crisp elastic pop-in (easeOutBack)
+                            float t = ageMs / 350.0f;
+                            float c1 = 1.70158f;
+                            float c3 = c1 + 1.0f;
+                            float u = t - 1.0f;
+                            pingPopScale = Math.max(0.25f, 1.0f + c3 * u * u * u + c1 * u * u);
+                        }
+                        if (remMs < 1500L) {
+                            pingFade = Math.max(0.05f, remMs / 1500.0f);
+                        }
+                        pingPulsePhase = (ageMs % 1600L) / 1600.0f;
+                    }
+
                     if ((priority && dist > 3.0) || (cfg.showWaypointBeam && dist > 6.0 && !dimmedByTarget && (focused || dist < 200.0))) {
-                        renderBeam(wx - camX, -camY, wz - camZ, wp.color, priority);
+                        renderBeam(wx - camX, -camY, wz - camZ, wp.color, priority, pingFade);
                     }
 
                     // Project onto fixed depth sphere (48 blocks) for crisp, zero-jitter constant screen pixel size
@@ -108,11 +132,11 @@ public class WaypointWorldRenderer {
 
                     // Distant off-axis waypoints gently shrink and soften; dimmed background waypoints step back cleanly
                     float distFactor = priority
-                        ? (focused ? 1.16f : 1.08f)
+                        ? (focused ? 1.16f : 1.08f) * pingPopScale
                         : (focused ? 1.08f : (dist > 1200.0 ? 0.72f : (dist > 300.0 ? 0.86f : 1.0f)));
-                    float alpha = priority
+                    float alpha = (priority
                         ? 1.0f
-                        : (focused ? 1.0f : (dist > 2000.0 ? 0.62f : (dist > 500.0 ? 0.80f : 0.95f)));
+                        : (focused ? 1.0f : (dist > 2000.0 ? 0.62f : (dist > 500.0 ? 0.80f : 0.95f)))) * pingFade;
 
                     int badgeColor = wp.color;
                     if (dimmedByTarget) {
@@ -139,6 +163,15 @@ public class WaypointWorldRenderer {
 
                     // Crisp pixel-art icon OR native GTNH Navigator icon (Ore Vein, Thaumcraft Node, etc.)
                     double hs = (priority || focused) ? 6.6 : 5.4;
+                    if (isTimedPing) {
+                        // Subtle expanding tactical ping pulse ring
+                        double innerR = hs * (1.05 + pingPulsePhase * 1.45);
+                        double outerR = innerR + 1.1;
+                        float ringAlpha = (1.0f - pingPulsePhase) * 0.72f * alpha;
+                        if (ringAlpha > 0.02f) {
+                            GLDraw.ring(0.0, 0.0, innerR, outerR, GLDraw.withAlpha(wp.color, ringAlpha), 24);
+                        }
+                    }
                     if (wp.customIconDrawer != null) {
                         int accent = (wp.type == Waypoint.Type.NAVIGATOR) ? 0xFFFACC15 : 0xFF38BDF8;
                         GLDraw.rect(-hs - 2.0, -hs - 2.0, hs + 2.0, hs + 2.0, GLDraw.withAlpha(0x070A0F, 0.94f * alpha));
@@ -156,7 +189,9 @@ public class WaypointWorldRenderer {
 
                     if (showFullLabel) {
                         String distStr = formatDistance(dist);
-                        String label = wp.name + " \u00a77(" + distStr + ")";
+                        String label = isTimedPing
+                            ? (wp.name + " \u00a77(" + distStr + " \u00b7 " + pingSecLeft + "s)")
+                            : (wp.name + " \u00a77(" + distStr + ")");
                         float textScale = priority ? 0.82f : 0.76f;
                         int lw = fr.getStringWidth(label);
                         double bw = (lw * textScale) * 0.5 + 3.2;
@@ -191,7 +226,7 @@ public class WaypointWorldRenderer {
         return ((int) Math.round(dist)) + "m";
     }
 
-    private static void renderBeam(double rx, double baseY, double rz, int color, boolean priority) {
+    private static void renderBeam(double rx, double baseY, double rz, int color, boolean priority, float fade) {
         GL11.glEnable(GL11.GL_DEPTH_TEST);
         GL11.glDepthMask(false);
         GLDraw.ensureBlend();
@@ -203,10 +238,10 @@ public class WaypointWorldRenderer {
 
         if (priority) {
             // Sleek two-layer tactical beacon column: soft colored outer glow + crisp bright inner core
-            drawCrossBeam(rx, baseY, rz, 0.36, r, g, b, 0.24f);
-            drawCrossBeam(rx, baseY, rz, 0.14, Math.min(1.0f, r * 0.65f + 0.35f), Math.min(1.0f, g * 0.65f + 0.35f), Math.min(1.0f, b * 0.65f + 0.35f), 0.56f);
+            drawCrossBeam(rx, baseY, rz, 0.36, r, g, b, 0.24f * fade);
+            drawCrossBeam(rx, baseY, rz, 0.14, Math.min(1.0f, r * 0.65f + 0.35f), Math.min(1.0f, g * 0.65f + 0.35f), Math.min(1.0f, b * 0.65f + 0.35f), 0.56f * fade);
         } else {
-            drawCrossBeam(rx, baseY, rz, 0.14, r, g, b, 0.22f);
+            drawCrossBeam(rx, baseY, rz, 0.14, r, g, b, 0.22f * fade);
         }
 
         GL11.glEnable(GL11.GL_TEXTURE_2D);

@@ -63,6 +63,7 @@ public class Waypoint {
     public String group = GROUP_DEFAULT;
     public long createdAt;
     public transient long expiresAt = 0L;
+    public transient long pingCreatedMs = 0L;
     public transient CustomIconDrawer customIconDrawer = null;
 
     public Waypoint() {}

@@ -85,6 +85,18 @@ public class CommandSaifunsMap extends CommandBase {
             return;
         }
 
+        if ("importgroup".equals(action)) {
+            int imported = waypointManager.importReceivedGroup(args[1]);
+            if (imported < 0) {
+                reply(sender, Lang.tr("saifunsmap.cmd.group_expired"));
+            } else if (imported == 0) {
+                reply(sender, Lang.tr("saifunsmap.cmd.group_none"));
+            } else {
+                reply(sender, Lang.tr("saifunsmap.cmd.group_imported", imported));
+            }
+            return;
+        }
+
         Waypoint decoded = WaypointManager.decodeSharePayload(args[1]);
         if (decoded == null) {
             reply(sender, Lang.tr("saifunsmap.cmd.invalid_data"));

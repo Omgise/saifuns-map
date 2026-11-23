@@ -1,5 +1,6 @@
 package com.saifun.map.gui;
 
+import com.saifun.map.network.MapNetwork;
 import com.saifun.map.render.GLDraw;
 import com.saifun.map.render.WaypointIconRenderer;
 import com.saifun.map.util.Lang;
@@ -186,7 +187,7 @@ public class GuiWaypoints extends GuiScreen {
 
         int panelW = getPanelW();
         int panelX = getPanelX();
-        int rightReserve = (selectedGroup != null ? 88 : 2) + 24; // reserve room for [+] pill
+        int rightReserve = (selectedGroup != null ? (MapNetwork.isServerModPresent() ? 154 : 88) : 2) + 24; // reserve room for [+] pill
         int maxRight = panelX + panelW - rightReserve;
         int x = panelX;
         int y = 51;
@@ -244,6 +245,10 @@ public class GuiWaypoints extends GuiScreen {
             boolean gOn = manager.isGroupEnabled(selectedGroup);
             this.buttonList.add(new ModernButton(21, panelX + panelW - 84, 51, 84, 17,
                 Lang.tr("saifunsmap.waypoints.group_toggle", Lang.onOff(gOn))).setAccent(gOn));
+            if (MapNetwork.isServerModPresent() && !manager.getWaypointsInGroup(selectedGroup).isEmpty()) {
+                this.buttonList.add(new ModernButton(24, panelX + panelW - 150, 51, 62, 17,
+                    Lang.tr("saifunsmap.waypoints.share")));
+            }
         }
 
         boolean hasSel = selectedIndex >= 0 && selectedIndex < displayed.size();
@@ -414,6 +419,14 @@ public class GuiWaypoints extends GuiScreen {
                 addingGroup = false;
                 refreshList();
                 rebuildButtons();
+                break;
+            case 24:
+                if (selectedGroup != null) {
+                    List<Waypoint> grpWps = manager.getWaypointsInGroup(selectedGroup);
+                    if (MapNetwork.sendShareGroup(selectedGroup, grpWps)) {
+                        statusMessage = Lang.tr("saifunsmap.waypoints.status.group_shared", localizeGroup(selectedGroup), grpWps.size());
+                    }
+                }
                 break;
             case 99:
                 mc.displayGuiScreen(parent);

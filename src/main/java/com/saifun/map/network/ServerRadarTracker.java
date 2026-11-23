@@ -1,6 +1,7 @@
 package com.saifun.map.network;
 
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
+import cpw.mods.fml.common.gameevent.PlayerEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.server.MinecraftServer;
@@ -17,6 +18,17 @@ import java.util.Map;
 public class ServerRadarTracker {
 
     private int tickCounter = 0;
+
+    @SubscribeEvent
+    public void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
+        if (event.player instanceof EntityPlayerMP) {
+            try {
+                MapNetwork.INSTANCE.sendTo(new PacketServerHello(1), (EntityPlayerMP) event.player);
+            } catch (Exception ignored) {
+                // Client without Saifun's Map installed — ignore silently.
+            }
+        }
+    }
 
     @SubscribeEvent
     public void onServerTick(TickEvent.ServerTickEvent event) {

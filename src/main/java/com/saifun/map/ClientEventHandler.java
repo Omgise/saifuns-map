@@ -11,6 +11,7 @@ import com.saifun.map.gui.GuiWaypointEdit;
 import com.saifun.map.gui.GuiWaypoints;
 import com.saifun.map.gui.GuiWorldMap;
 import com.saifun.map.input.MapKeybinds;
+import com.saifun.map.network.MapNetwork;
 import com.saifun.map.radar.EntityRadarManager;
 import com.saifun.map.render.MinimapRenderer;
 import com.saifun.map.util.Lang;
@@ -24,6 +25,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.MathHelper;
+import net.minecraft.util.MovingObjectPosition;
 import net.minecraftforge.client.event.ClientChatReceivedEvent;
 import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
@@ -103,6 +105,7 @@ public class ClientEventHandler {
         chunkScanner.reset();
         radarManager.clear();
         waypointManager.clearSession();
+        MapNetwork.setServerModPresent(false);
         com.saifun.map.radar.EntityIconRenderer.clearEntityIdCache();
     }
 
@@ -149,7 +152,9 @@ public class ClientEventHandler {
 
         MapConfig cfg = MapConfig.get();
 
-        if (MapKeybinds.KEY_QUICK_MENU.isPressed()) {
+        if (MapKeybinds.KEY_QUICK_PING.isPressed()) {
+            triggerQuickPing(mc);
+        } else if (MapKeybinds.KEY_QUICK_MENU.isPressed()) {
             mc.displayGuiScreen(new GuiQuickMenu(worldCache, chunkScanner, radarManager, waypointManager, gtnhBridge, minimapRenderer));
         } else if (MapKeybinds.KEY_WORLD_MAP.isPressed()) {
             mc.displayGuiScreen(new GuiWorldMap(worldCache, chunkScanner, radarManager, waypointManager, gtnhBridge));
@@ -203,6 +208,22 @@ public class ClientEventHandler {
             cfg.circularMinimap = !cfg.circularMinimap;
             MapConfig.save();
         }
+    }
+
+    private static void triggerQuickPing(Minecraft mc) {
+        if (mc.thePlayer == null || mc.theWorld == null) return;
+        MovingObjectPosition mop = mc.thePlayer.rayTrace(200.0, 1.0f);
+        int px, py, pz;
+        if (mop != null && mop.typeOfHit == MovingObjectPosition.MovingObjectType.BLOCK) {
+            px = mop.blockX;
+            py = mop.blockY;
+            pz = mop.blockZ;
+        } else {
+            px = MathHelper.floor_double(mc.thePlayer.posX);
+            py = MathHelper.floor_double(mc.thePlayer.posY);
+            pz = MathHelper.floor_double(mc.thePlayer.posZ);
+        }
+        MapNetwork.sendQuickPing(px, py, pz, mc.theWorld.provider.dimensionId, mc.thePlayer.getCommandSenderName());
     }
 
     private static void notifyPlayer(String msg) {

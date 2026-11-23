@@ -21,6 +21,7 @@ public final class MapKeybinds {
     public static KeyBinding KEY_TOGGLE_SHAPE;
     public static KeyBinding KEY_ADD_WAYPOINT;
     public static KeyBinding KEY_WAYPOINTS_MENU;
+    public static KeyBinding KEY_QUICK_PING;
 
     private MapKeybinds() {}
 
@@ -34,7 +35,8 @@ public final class MapKeybinds {
         KEY_ZOOM_IN = reg("key.saifunsmap.zoom_in", Keyboard.KEY_EQUALS);
         KEY_ZOOM_OUT = reg("key.saifunsmap.zoom_out", Keyboard.KEY_MINUS);
 
-        // Unbound by default (accessible via Quick Menu, or freely bindable in Controls)
+        // Unbound by default (accessible via Quick Menu / World Map, or freely bindable in Controls)
+        KEY_QUICK_PING = reg("key.saifunsmap.quick_ping", Keyboard.KEY_NONE);
         KEY_SETTINGS = reg("key.saifunsmap.settings", Keyboard.KEY_NONE);
         KEY_TOGGLE_MINIMAP = reg("key.saifunsmap.toggle_minimap", Keyboard.KEY_NONE);
         KEY_TOGGLE_CAVE_MODE = reg("key.saifunsmap.toggle_cave", Keyboard.KEY_NONE);

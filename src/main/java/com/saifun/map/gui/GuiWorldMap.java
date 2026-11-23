@@ -7,6 +7,7 @@ import com.saifun.map.engine.ChunkScanner;
 import com.saifun.map.engine.MapRegion;
 import com.saifun.map.engine.MapWorldCache;
 import com.saifun.map.input.MapKeybinds;
+import com.saifun.map.network.MapNetwork;
 import com.saifun.map.radar.EntityCategory;
 import com.saifun.map.radar.EntityIconRenderer;
 import com.saifun.map.radar.EntityRadarManager;
@@ -418,6 +419,16 @@ public class GuiWorldMap extends GuiScreen {
                 }
             }));
         }
+
+        contextMenuActions.add(new IGtnhLayerBridge.ContextAction(Lang.tr("saifunsmap.context.quick_ping"), () -> {
+            if (mc.theWorld != null) {
+                int px = clickedWp != null ? clickedWp.x : bx;
+                int py = clickedWp != null ? clickedWp.y : by;
+                int pz = clickedWp != null ? clickedWp.z : bz;
+                String lbl = clickedWp != null ? clickedWp.name : (mc.thePlayer != null ? mc.thePlayer.getCommandSenderName() : "Ping");
+                MapNetwork.sendQuickPing(px, py, pz, mc.theWorld.provider.dimensionId, lbl);
+            }
+        }));
 
         contextMenuActions.add(new IGtnhLayerBridge.ContextAction(Lang.tr("saifunsmap.context.add_waypoint"), () -> {
             if (mc.theWorld != null) {
